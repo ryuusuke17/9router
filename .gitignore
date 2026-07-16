@@ -83,3 +83,5 @@ graphify-out/*
 .docs/
 .repo/
 .script/
+.codegraph/
+.PR/
