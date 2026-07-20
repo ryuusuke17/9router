@@ -1729,6 +1729,7 @@ export default function ProviderDetailPage() {
         isAnthropic={isAnthropicCompatible}
         authType={providerInfo?.authType}
         authHint={providerInfo?.authHint}
+        authFields={providerInfo?.authFields}
         website={providerInfo?.website}
         proxyPools={proxyPools}
         error={addConnectionError}

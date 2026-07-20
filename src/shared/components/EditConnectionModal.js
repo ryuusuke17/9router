@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
@@ -29,6 +29,38 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [validationResult, setValidationResult] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const providerCfg = connection ? AI_PROVIDERS?.[connection.provider] : null;
+  const authFields = providerCfg?.authFields || null;
+  const hasAuthFields = Array.isArray(authFields) && authFields.length > 0;
+
+  const initAuthFieldValues = useMemo(() => {
+    if (!hasAuthFields) return {};
+    const init = {};
+    for (const f of authFields) init[f.key] = "";
+    return init;
+  }, [hasAuthFields, authFields]);
+  const [authFieldValues, setAuthFieldValues] = useState(initAuthFieldValues);
+
+  const getCombinedApiKey = () => {
+    if (!hasAuthFields) return formData.apiKey;
+    return authFields
+      .filter(f => f.storeIn === "apiKey")
+      .map(f => authFieldValues[f.key] || "")
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const buildAuthProviderSpecificData = () => {
+    if (!hasAuthFields) return undefined;
+    const psd = {};
+    for (const f of authFields) {
+      if (f.storeIn === "providerSpecificData" && authFieldValues[f.key]) {
+        psd[f.key] = authFieldValues[f.key];
+      }
+    }
+    return Object.keys(psd).length > 0 ? psd : undefined;
+  };
+
   useEffect(() => {
     if (connection) {
       setFormData({
@@ -49,15 +81,32 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
       }
       // Load region for providers that support it (e.g. xiaomi-tokenplan)
-      const providerCfg = AI_PROVIDERS?.[connection.provider];
       if (providerCfg?.regions) {
         const savedRegion = connection.providerSpecificData?.region || providerCfg.defaultRegion || providerCfg.regions[0]?.id || "";
         setRegion(savedRegion);
       }
+      // Load authField values for web-cookie providers from existing data
+      if (hasAuthFields && connection.apiKey) {
+        const vals = {};
+        const apiKeyFields = authFields.filter(f => f.storeIn === "apiKey");
+        if (apiKeyFields.length === 1) {
+          vals[apiKeyFields[0].key] = connection.apiKey;
+        } else if (apiKeyFields.length > 1) {
+          // For multi-field apiKey, we can't split reliably
+          // Leave blank; user must re-enter.
+        }
+        const psdFields = authFields.filter(f => f.storeIn === "providerSpecificData");
+        for (const f of psdFields) {
+          if (connection.providerSpecificData?.[f.key]) {
+            vals[f.key] = connection.providerSpecificData[f.key];
+          }
+        }
+        setAuthFieldValues(vals);
+      }
       setTestResult(null);
       setValidationResult(null);
     }
-  }, [connection]);
+  }, [connection, hasAuthFields, authFields, providerCfg]);
 
   const isOAuth = connection?.authType === "oauth";
   const isAzure = connection?.provider === "azure";
@@ -89,7 +138,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   };
 
   const handleValidate = async () => {
-    if (!connection?.provider || !formData.apiKey) return;
+    if (!connection?.provider) return;
+    const apiKey = getCombinedApiKey();
+    if (!apiKey) return;
     setValidating(true);
     setValidationResult(null);
     try {
@@ -98,9 +149,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: connection.provider,
-          apiKey: formData.apiKey,
+          apiKey,
           ...(isAzure ? { providerSpecificData: azureData } : {}),
           ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
+          ...(hasAuthFields ? { providerSpecificData: buildAuthProviderSpecificData() } : {}),
           ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
         }),
       });
@@ -121,8 +173,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: formData.name,
         priority: formData.priority,
       };
-      if (!isOAuth && formData.apiKey) {
-        updates.apiKey = formData.apiKey;
+      const apiKey = getCombinedApiKey();
+      if (!isOAuth && apiKey) {
+        updates.apiKey = apiKey;
         let isValid = validationResult === "success";
         if (!isValid) {
           try {
@@ -133,9 +186,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 provider: connection.provider,
-                apiKey: formData.apiKey,
+                apiKey,
                 ...(isAzure ? { providerSpecificData: azureData } : {}),
                 ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
+                ...(hasAuthFields ? { providerSpecificData: buildAuthProviderSpecificData() } : {}),
                 ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
               }),
             });
@@ -166,6 +220,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       }
       if (isCloudflareAi) {
         updates.providerSpecificData = { accountId: cloudflareData.accountId };
+      }
+      if (hasAuthFields) {
+        const psd = buildAuthProviderSpecificData();
+        if (psd) updates.providerSpecificData = { ...(updates.providerSpecificData || {}), ...psd };
       }
       // Persist updated region for region-aware providers
       if (providerRegions && region) {
@@ -202,7 +260,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value, 10) || 1 })}
         />
 
-        {!isOAuth && (
+        {!isOAuth && !hasAuthFields && (
           <>
             <div className="flex gap-2">
               <Input
@@ -226,6 +284,37 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               </Badge>
             )}
           </>
+        )}
+        {!isOAuth && hasAuthFields && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
+            <h3 className="font-semibold mb-3 text-sm">Cookie Values</h3>
+            <div className="flex flex-col gap-3">
+              {authFields.map((f) => (
+                <div key={f.key}>
+                  <Input
+                    label={f.label}
+                    type={f.type === "password" ? "password" : "text"}
+                    value={authFieldValues[f.key] || ""}
+                    onChange={(e) => setAuthFieldValues({ ...authFieldValues, [f.key]: e.target.value })}
+                    placeholder={f.placeholder || ""}
+                    hint={f.helper || ""}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button onClick={handleValidate} disabled={!getCombinedApiKey() || validating || saving} variant="secondary" size="sm">
+                {validating ? "Checking..." : "Check Cookie"}
+              </Button>
+            </div>
+            {validationResult && (
+              <div className="mt-2">
+                <Badge variant={validationResult === "success" ? "success" : "error"}>
+                  {validationResult === "success" ? "Valid" : "Invalid"}
+                </Badge>
+              </div>
+            )}
+          </div>
         )}
 
         {isAzure && (

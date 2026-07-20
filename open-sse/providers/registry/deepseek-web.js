@@ -1,0 +1,36 @@
+export default {
+  id: "deepseek-web",
+  priority: 115,
+  alias: "ds-web",
+  aliases: ["dsw"],
+  uiAlias: "dsw",
+  display: {
+    name: "DeepSeek Web (Chat)",
+    icon: "auto_awesome",
+    color: "#4F6BED",
+    textIcon: "DS",
+    website: "https://chat.deepseek.com",
+    notice: {
+      text: "Paste your userToken from chat.deepseek.com localStorage (DevTools → Application → Local Storage).",
+      signupUrl: "https://chat.deepseek.com",
+    },
+  },
+  category: "webCookie",
+  authType: "cookie",
+  authHint: "Paste your userToken value from chat.deepseek.com DevTools → Application → Local Storage → userToken",
+  transport: {
+    baseUrl: "https://chat.deepseek.com/api/v0/chat/completion",
+    format: "deepseek-web",
+    authType: "cookie",
+  },
+  models: [
+    { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
+    { id: "deepseek-v4-pro-think", name: "DeepSeek V4 Pro Think" },
+    { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+    { id: "deepseek-v4-flash-think", name: "DeepSeek V4 Flash Think" },
+    { id: "deepseek-chat", name: "DeepSeek Chat" },
+    { id: "deepseek-reasoner", name: "DeepSeek Reasoner" },
+    { id: "DeepSeek-R1", name: "DeepSeek R1" },
+    { id: "DeepSeek-V3.2", name: "DeepSeek V3.2" },
+  ],
+};

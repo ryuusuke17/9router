@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import PropTypes from "prop-types";
 import { Button, Badge, Input, Modal, Select } from "@/shared/components";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
@@ -8,14 +8,15 @@ import { planBulkAdd } from "@/shared/utils/bulkAdd";
 
 const BULK_PLACEHOLDER = `name1|sk-key1\nname2|sk-key2\nsk-key-only-auto-named`;
 
-export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, authType, authHint, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
+export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, authType, authHint, authFields, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
   const NONE_PROXY_POOL_VALUE = "__none__";
   const isOllamaLocal = provider === "ollama-local";
   const isCookie = authType === "cookie";
   const isXaiApiKey = provider === "xai" && !isCookie;
+  const hasAuthFields = Array.isArray(authFields) && authFields.length > 0;
   const credentialLabel = isCookie ? "Cookie Value" : "API Key";
   const credentialPlaceholder = isCookie
-    ? (provider === "grok-web" ? "sso=xxxxx... or just the raw value" : "eyJhbGciOi...")
+    ? "eyJhbGciOi..."
     : (isXaiApiKey ? "xai-..." : "");
 
   const isAzure = provider === "azure";
@@ -31,6 +32,13 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     proxyPoolId: NONE_PROXY_POOL_VALUE,
     ollamaHostUrl: "",
   });
+  const initAuthFieldValues = useMemo(() => {
+    if (!hasAuthFields) return {};
+    const init = {};
+    for (const f of authFields) init[f.key] = "";
+    return init;
+  }, [hasAuthFields, authFields]);
+  const [authFieldValues, setAuthFieldValues] = useState(initAuthFieldValues);
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
     apiVersion: "2024-10-01-preview",
@@ -50,6 +58,15 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState(null); // { success, failed }
 
+  const getCombinedApiKey = () => {
+    if (!hasAuthFields) return formData.apiKey;
+    return authFields
+      .filter(f => f.storeIn === "apiKey")
+      .map(f => authFieldValues[f.key] || "")
+      .filter(Boolean)
+      .join(" ");
+  };
+
   const buildProviderSpecificData = () => {
     if (isOllamaLocal && formData.ollamaHostUrl.trim()) {
       return { baseUrl: formData.ollamaHostUrl.trim() };
@@ -68,6 +85,15 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     if (providerRegions && region) {
       return { region };
     }
+    if (hasAuthFields) {
+      const psd = {};
+      for (const f of authFields) {
+        if (f.storeIn === "providerSpecificData" && authFieldValues[f.key]) {
+          psd[f.key] = authFieldValues[f.key];
+        }
+      }
+      return Object.keys(psd).length > 0 ? psd : undefined;
+    }
     return undefined;
   };
 
@@ -77,7 +103,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
       const res = await fetch("/api/providers/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey: formData.apiKey, providerSpecificData: buildProviderSpecificData() }),
+        body: JSON.stringify({ provider, apiKey: getCombinedApiKey(), providerSpecificData: buildProviderSpecificData() }),
       });
       const data = await res.json();
       setValidationResult(data.valid ? "success" : "failed");
@@ -90,8 +116,8 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
 
   const handleSubmit = async () => {
     if (!provider) return;
-    if (!isOllamaLocal && !formData.apiKey) return;
     if (!isOllamaLocal) {
+      if (!getCombinedApiKey()) return;
       // Non-ollama providers require a name
       if (!formData.name) return;
     }
@@ -106,7 +132,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         const res = await fetch("/api/providers/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider, apiKey: formData.apiKey, providerSpecificData: buildProviderSpecificData() }),
+          body: JSON.stringify({ provider, apiKey: getCombinedApiKey(), providerSpecificData: buildProviderSpecificData() }),
         });
         const data = await res.json();
         isValid = !!data.valid;
@@ -119,7 +145,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
 
       await onSave({
         name: formData.name || (isOllamaLocal ? "Ollama Local" : ""),
-        apiKey: formData.apiKey,
+        apiKey: getCombinedApiKey(),
         defaultModel: isCompatible ? formData.defaultModel.trim() : undefined,
         priority: formData.priority,
         proxyPoolId: formData.proxyPoolId === NONE_PROXY_POOL_VALUE ? null : formData.proxyPoolId,
@@ -230,7 +256,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
             </div>
           </div>
         )}
-        {!isOllamaLocal && (
+        {!isOllamaLocal && !hasAuthFields && (
           <div className="flex gap-2">
             <Input
               label={credentialLabel}
@@ -247,12 +273,38 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
             </div>
           </div>
         )}
+        {!isOllamaLocal && hasAuthFields && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
+            <h3 className="font-semibold mb-3 text-sm">{credentialLabel}</h3>
+            <div className="flex flex-col gap-3">
+              {authFields.map((f) => (
+                <div key={f.key}>
+                  <Input
+                    label={f.label}
+                    type={f.type === "password" ? "password" : "text"}
+                    value={authFieldValues[f.key] || ""}
+                    onChange={(e) => setAuthFieldValues({ ...authFieldValues, [f.key]: e.target.value })}
+                    placeholder={f.placeholder || ""}
+                  />
+                  {f.helper && (
+                    <p className="text-xs text-text-muted mt-1 whitespace-pre-wrap">{f.helper}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button onClick={handleValidate} disabled={!getCombinedApiKey() || validating || saving} variant="secondary" size="sm">
+                {validating ? "Checking..." : "Check Cookie"}
+              </Button>
+            </div>
+          </div>
+        )}
         {isXaiApiKey && (
           <p className="text-xs text-text-muted">
             Use a direct xAI API key from console.x.ai. This is separate from Grok Build OAuth.
           </p>
         )}
-        {isCookie && authHint && (
+        {isCookie && authHint && !hasAuthFields && (
           <p className="text-xs text-text-muted">
             {authHint}
             {website && (
@@ -263,6 +315,13 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
                 </a>
               </>
             )}
+          </p>
+        )}
+        {isCookie && hasAuthFields && website && (
+          <p className="text-xs text-text-muted">
+            <a href={website} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+              Open {website.replace(/^https?:\/\//, "")}
+            </a>
           </p>
         )}
         {providerRegions && (
@@ -374,7 +433,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         </p>
 
         <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isCompatible && !formData.defaultModel.trim()) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization)) || (isCloudflareAi && !cloudflareData.accountId)}>
+          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !getCombinedApiKey())) || (isCompatible && !formData.defaultModel.trim()) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization)) || (isCloudflareAi && !cloudflareData.accountId)}>
             {saving ? "Saving..." : "Save"}
           </Button>
           <Button onClick={onClose} variant="ghost" fullWidth>
@@ -395,6 +454,15 @@ AddApiKeyModal.propTypes = {
   isAnthropic: PropTypes.bool,
   authType: PropTypes.string,
   authHint: PropTypes.string,
+  authFields: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    type: PropTypes.string,
+    placeholder: PropTypes.string,
+    helper: PropTypes.string,
+    storeIn: PropTypes.string,
+    required: PropTypes.bool,
+  })),
   website: PropTypes.string,
   proxyPools: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string,

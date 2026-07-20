@@ -12,14 +12,20 @@ import { VertexExecutor } from "./vertex.js";
 import { QwenExecutor } from "./qwen.js";
 import { OpenCodeExecutor } from "./opencode.js";
 import { OpenCodeGoExecutor } from "./opencode-go.js";
-import { GrokWebExecutor } from "./grok-web.js";
 import { GrokCliExecutor } from "./grok-cli.js";
+import { ChatGPTWebExecutor } from "./chatgpt-web.js";
+import { GeminiWebExecutor } from "./gemini-web.js";
+import { DeepSeekWebExecutor } from "./deepseek-web.js";
+import { QwenWebExecutor } from "./qwen-web.js";
+import { KimiWebExecutor } from "./kimi-web.js";
+import { BlackboxWebExecutor } from "./blackbox-web.js";
 import { PerplexityWebExecutor } from "./perplexity-web.js";
 import { OllamaLocalExecutor } from "./ollama-local.js";
 import { CommandCodeExecutor } from "./commandcode.js";
 import { XiaomiTokenplanExecutor } from "./xiaomi-tokenplan.js";
 import { MimoFreeExecutor } from "./mimo-free.js";
 import { CodeBuddyExecutor } from "./codebuddy-cn.js";
+import { ZenmuxFreeExecutor } from "./zenmux-free.js";
 import { DefaultExecutor } from "./default.js";
 
 const executors = {
@@ -39,7 +45,12 @@ const executors = {
   qwen: new QwenExecutor(),
   opencode: new OpenCodeExecutor(),
   "opencode-go": new OpenCodeGoExecutor(),
-  "grok-web": new GrokWebExecutor(),
+  "chatgpt-web": new ChatGPTWebExecutor(),
+  "gemini-web": new GeminiWebExecutor(),
+  "deepseek-web": new DeepSeekWebExecutor(),
+  "qwen-web": new QwenWebExecutor(),
+  "kimi-web": new KimiWebExecutor(),
+  "blackbox-web": new BlackboxWebExecutor(),
   "grok-cli": new GrokCliExecutor(),
   gcli: new GrokCliExecutor(), // Alias
   gb: new GrokCliExecutor(), // Alias (Grok Build)
@@ -50,6 +61,7 @@ const executors = {
   "mimo-free": new MimoFreeExecutor(),
   mmf: new MimoFreeExecutor(), // Alias for mimo-free
   "codebuddy-cn": new CodeBuddyExecutor(),
+  "zenmux-free": new ZenmuxFreeExecutor(),
 };
 
 const defaultCache = new Map();
@@ -80,11 +92,17 @@ export { DefaultExecutor } from "./default.js";
 export { QwenExecutor } from "./qwen.js";
 export { OpenCodeExecutor } from "./opencode.js";
 export { OpenCodeGoExecutor } from "./opencode-go.js";
-export { GrokWebExecutor } from "./grok-web.js";
 export { GrokCliExecutor } from "./grok-cli.js";
+export { ChatGPTWebExecutor } from "./chatgpt-web.js";
+export { GeminiWebExecutor } from "./gemini-web.js";
+export { DeepSeekWebExecutor } from "./deepseek-web.js";
+export { QwenWebExecutor } from "./qwen-web.js";
+export { KimiWebExecutor } from "./kimi-web.js";
+export { BlackboxWebExecutor } from "./blackbox-web.js";
 export { PerplexityWebExecutor } from "./perplexity-web.js";
 export { OllamaLocalExecutor } from "./ollama-local.js";
 export { CommandCodeExecutor } from "./commandcode.js";
 export { XiaomiTokenplanExecutor } from "./xiaomi-tokenplan.js";
 export { MimoFreeExecutor } from "./mimo-free.js";
 export { CodeBuddyExecutor } from "./codebuddy-cn.js";
+export { ZenmuxFreeExecutor } from "./zenmux-free.js";
