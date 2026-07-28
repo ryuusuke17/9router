@@ -11,6 +11,7 @@ const BULK_PLACEHOLDER = `name1|sk-key1\nname2|sk-key2\nsk-key-only-auto-named`;
 export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, authType, authHint, authFields, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
   const NONE_PROXY_POOL_VALUE = "__none__";
   const isOllamaLocal = provider === "ollama-local";
+  const isOllamaCloud = provider === "ollama";
   const isCookie = authType === "cookie";
   const isXaiApiKey = provider === "xai" && !isCookie;
   const hasAuthFields = Array.isArray(authFields) && authFields.length > 0;
@@ -31,6 +32,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     priority: 1,
     proxyPoolId: NONE_PROXY_POOL_VALUE,
     ollamaHostUrl: "",
+    ollamaCloudUsageCookie: "",
   });
   const initAuthFieldValues = useMemo(() => {
     if (!hasAuthFields) return {};
@@ -68,6 +70,11 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   };
 
   const buildProviderSpecificData = () => {
+    if (isOllamaCloud && formData.ollamaCloudUsageCookie.trim()) {
+      const psd = {};
+      if (formData.ollamaCloudUsageCookie.trim()) psd.ollamaCloudUsageCookie = formData.ollamaCloudUsageCookie.trim();
+      return psd;
+    }
     if (isOllamaLocal && formData.ollamaHostUrl.trim()) {
       return { baseUrl: formData.ollamaHostUrl.trim() };
     }
@@ -254,6 +261,20 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
                 {validating ? "Checking..." : "Check"}
               </Button>
             </div>
+          </div>
+        )}
+        {isOllamaCloud && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
+            <Input
+              label="Ollama Cloud usage cookie"
+              type="password"
+              value={formData.ollamaCloudUsageCookie}
+              onChange={(e) => setFormData({ ...formData, ollamaCloudUsageCookie: e.target.value })}
+              placeholder="__Secure-session=..."
+              hint="Required for quota scraping. Paste the __Secure-session cookie value from ollama.com/settings."
+              autoComplete="off"
+              spellCheck={false}
+            />
           </div>
         )}
         {!isOllamaLocal && !hasAuthFields && (

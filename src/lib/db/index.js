@@ -29,7 +29,8 @@ export {
 
 // API keys
 export {
-  getApiKeys, getApiKeyById, createApiKey, updateApiKey, deleteApiKey, validateApiKey,
+  getApiKeys, getApiKeyById, getApiKeyByValue,
+  createApiKey, updateApiKey, deleteApiKey, validateApiKey,
 } from "./repos/apiKeysRepo.js";
 
 // Combos
@@ -66,6 +67,34 @@ export {
 export {
   saveRequestDetail, getRequestDetails, getRequestDetailById, getDistinctProviders,
 } from "./repos/requestDetailsRepo.js";
+
+// ── Quota / Usage Tracking ─────────────────────────────────────────────
+
+export {
+  getBucket, incrementBucket, getPair, sumPoolDimension,
+  listConsumptionForPool, gcOlderThan,
+} from "./repos/quotaConsumptionRepo.js";
+
+export {
+  listPools, getPool, createPool, updatePool, deletePool,
+  listAllocationsForPool, listAllocationsForApiKey,
+  setAllocation, deleteAllocation,
+  listConnectionIdsForPool, addConnectionToPool, removeConnectionFromPool,
+  findPoolsForConnection,
+} from "./repos/quotaPoolsRepo.js";
+
+export {
+  getModelCap, listModelCaps, setModelCap, deleteModelCap, listModelCapsForPool,
+} from "./repos/quotaModelCapsRepo.js";
+
+export {
+  saveQuotaSnapshot, getQuotaSnapshots, getLatestSnapshot, gcSnapshotsOlderThan,
+} from "./repos/quotaSnapshotsRepo.js";
+
+export {
+  getDomainState, setDomainState, deleteDomainState,
+  listDomainState, batchSaveDomainState,
+} from "./repos/domainStateRepo.js";
 
 // Export/import full DB
 export async function exportDb() {

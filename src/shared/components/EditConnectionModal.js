@@ -23,6 +23,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   });
   const [cloudflareData, setCloudflareData] = useState({ accountId: "" });
   const [region, setRegion] = useState("");
+  const [ollamaCloudUsageCookie, setOllamaCloudUsageCookie] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
@@ -80,6 +81,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (connection.provider === "cloudflare-ai" && connection.providerSpecificData) {
         setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
       }
+      if (connection.provider === "ollama" && connection.providerSpecificData?.ollamaCloudUsageCookie) {
+        setOllamaCloudUsageCookie(connection.providerSpecificData.ollamaCloudUsageCookie);
+      }
       // Load region for providers that support it (e.g. xiaomi-tokenplan)
       if (providerCfg?.regions) {
         const savedRegion = connection.providerSpecificData?.region || providerCfg.defaultRegion || providerCfg.regions[0]?.id || "";
@@ -111,6 +115,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const isOAuth = connection?.authType === "oauth";
   const isAzure = connection?.provider === "azure";
   const isCloudflareAi = connection?.provider === "cloudflare-ai";
+  const isOllamaCloud = connection?.provider === "ollama" && connection?.provider !== "ollama-local";
   const isCompatible = connection
     ? (isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider))
     : false;
@@ -224,6 +229,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (hasAuthFields) {
         const psd = buildAuthProviderSpecificData();
         if (psd) updates.providerSpecificData = { ...(updates.providerSpecificData || {}), ...psd };
+      }
+      if (isOllamaCloud && ollamaCloudUsageCookie) {
+        updates.providerSpecificData = { ...(updates.providerSpecificData || {}), ollamaCloudUsageCookie: ollamaCloudUsageCookie.trim() };
       }
       // Persist updated region for region-aware providers
       if (providerRegions && region) {
@@ -350,6 +358,21 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 hint="Required for billing"
               />
             </div>
+          </div>
+        )}
+
+        {isOllamaCloud && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
+            <Input
+              label="Ollama Cloud usage cookie"
+              type="password"
+              value={ollamaCloudUsageCookie}
+              onChange={(e) => setOllamaCloudUsageCookie(e.target.value)}
+              placeholder="__Secure-session=..."
+              hint="Leave blank to keep the stored cookie. Paste the __Secure-session cookie value from ollama.com/settings to replace it."
+              autoComplete="off"
+              spellCheck={false}
+            />
           </div>
         )}
 

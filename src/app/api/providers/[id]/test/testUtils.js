@@ -768,6 +768,24 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
+      case "openrouter": {
+        const res = await fetchWithConnectionProxy("https://openrouter.ai/api/v1/auth/key", {
+          headers: { Authorization: `Bearer ${connection.apiKey}` },
+        }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "nvidia": {
+        const res = await fetchWithConnectionProxy("https://integrate.api.nvidia.com/v1/models", {
+          headers: { Authorization: `Bearer ${connection.apiKey}` },
+        }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "gemini": {
+        const res = await fetchWithConnectionProxy("https://generativelanguage.googleapis.com/v1beta/models", {
+          headers: { "x-goog-api-key": connection.apiKey },
+        }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
       default: {
         const webValidator = getWebCookieValidator(connection.provider);
         if (webValidator) {

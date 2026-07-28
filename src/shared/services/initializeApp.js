@@ -112,6 +112,8 @@ async function runHeavyStartup() {
       .then(({ startQuotaAutoPing }) => startQuotaAutoPing())
       .catch((e) => console.log("[AutoPing] scheduler start failed:", e.message));
   }
+
+  import("@/lib/quota/watchdog.js").then((m) => m.startQuotaWatchdog()).catch(() => {});
 }
 
 function hasQuotaAutoPingEnabled(settings) {

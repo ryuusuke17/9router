@@ -22,6 +22,9 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+import { getApiKeyByValue } from "@/lib/db/index.js";
+import { enforceQuotaShare } from "@/lib/quota/enforce.js";
+import { scheduleRecordConsumption, buildConsumptionCost } from "@/lib/quota/spendRecorder.js";
 
 /**
  * Handle chat completion request
@@ -185,6 +188,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   const { provider, model } = modelInfo;
 
+  // Resolve API key ID for quota enforcement
+  let apiKeyId = null;
+  if (apiKey) {
+    try {
+      const record = await getApiKeyByValue(apiKey);
+      if (record) apiKeyId = record.id;
+    } catch {
+      // quota enforcement skipped on lookup failure
+    }
+  }
+
   // Routing shown in the unified "▶" line (client model → provider/model)
 
   // Extract userAgent from request
@@ -224,6 +238,34 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         refreshedCredentials.projectId = pid;
         // Persist to DB in background so subsequent requests have it immediately
         updateProviderCredentials(credentials.connectionId, { projectId: pid }).catch(() => { });
+      }
+    }
+
+    // Enforce quota share before dispatching the upstream request
+    if (apiKeyId) {
+      try {
+        const quotaResult = await enforceQuotaShare({
+          apiKeyId,
+          connectionId: credentials.connectionId,
+          provider,
+          model,
+        });
+        if (quotaResult.kind === "block") {
+          const retryAfter = quotaResult.retryAfterSeconds ?? 30;
+          log.warn("QUOTA", `[${provider}/${model}] Quota blocked: ${quotaResult.reason}`);
+          await markAccountUnavailable(
+            credentials.connectionId,
+            quotaResult.httpStatus || 429,
+            quotaResult.reason,
+            provider,
+            model,
+            Date.now() + retryAfter * 1000
+          );
+          excludeConnectionIds.add(credentials.connectionId);
+          continue;
+        }
+      } catch (err) {
+        log.warn("QUOTA", `[${provider}/${model}] Quota check error: ${err.message}`);
       }
     }
 
@@ -269,7 +311,21 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) {
+      if (apiKeyId) {
+        scheduleRecordConsumption(
+          {
+            apiKeyId,
+            connectionId: credentials.connectionId,
+            provider,
+            model,
+            cost: buildConsumptionCost(null, 0),
+          },
+          log
+        );
+      }
+      return result.response;
+    }
 
     // Mark account unavailable (auto-calculates cooldown with exponential backoff, or precise resetsAtMs)
     const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, result.resetsAtMs);

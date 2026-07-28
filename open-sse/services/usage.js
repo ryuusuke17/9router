@@ -15,11 +15,11 @@ import { getGrokCliUsage } from "./usage/grok-cli.js";
 import {
   getQwenUsage,
   getIflowUsage,
-  getOllamaUsage,
   getGlmUsage,
   getVercelAiGatewayUsage,
   getQoderUsage,
 } from "./usage/misc.js";
+import { getOllamaCloudUsage } from "./usage/ollamaCloud.js";
 
 /**
  * Get usage data for a provider connection
@@ -37,7 +37,7 @@ const USAGE_HANDLERS = {
   qoder: (c) => getQoderUsage(c.accessToken, c.proxyOptions),
   qwen: (c) => getQwenUsage(c.accessToken, c.providerSpecificData),
   iflow: (c) => getIflowUsage(c.accessToken),
-  ollama: (c) => getOllamaUsage(c.accessToken),
+  ollama: (c) => getOllamaCloudUsage(c.providerSpecificData),
   glm: (c) => getGlmUsage(c.apiKey, c.provider, c.proxyOptions),
   "glm-cn": (c) => getGlmUsage(c.apiKey, c.provider, c.proxyOptions),
   minimax: (c) => getMiniMaxUsage(c.apiKey, c.provider, c.proxyOptions),

@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -150,6 +150,100 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+    ],
+  },
+
+  // ── Quota / Usage Tracking Tables ─────────────────────────────────────
+
+  quotaConsumption: {
+    columns: {
+      apiKeyId: "TEXT NOT NULL",
+      dimensionKey: "TEXT NOT NULL",
+      bucketIndex: "INTEGER NOT NULL",
+      consumed: "REAL NOT NULL DEFAULT 0",
+      updatedAt: "INTEGER NOT NULL",
+    },
+    primaryKey: "PRIMARY KEY (apiKeyId, dimensionKey, bucketIndex)",
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_qc_dim ON quotaConsumption(dimensionKey)",
+    ],
+  },
+
+  quotaPools: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      name: "TEXT NOT NULL",
+      createdAt: "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    },
+  },
+
+  quotaAllocations: {
+    columns: {
+      poolId: "TEXT NOT NULL REFERENCES quotaPools(id) ON DELETE CASCADE",
+      apiKeyId: "TEXT NOT NULL",
+      weight: "REAL NOT NULL CHECK (weight >= 0 AND weight <= 100)",
+      capValue: "REAL",
+      capUnit: "TEXT",
+      policy: "TEXT NOT NULL DEFAULT 'hard'",
+    },
+    primaryKey: "PRIMARY KEY (poolId, apiKeyId)",
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_qa_ak ON quotaAllocations(apiKeyId)",
+    ],
+  },
+
+  quotaPoolConnections: {
+    columns: {
+      poolId: "TEXT NOT NULL REFERENCES quotaPools(id) ON DELETE CASCADE",
+      connectionId: "TEXT NOT NULL",
+      createdAt: "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    },
+    primaryKey: "PRIMARY KEY (poolId, connectionId)",
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_qpc_conn ON quotaPoolConnections(connectionId)",
+    ],
+  },
+
+  quotaAllocationModelCaps: {
+    columns: {
+      poolId: "TEXT NOT NULL",
+      apiKeyId: "TEXT NOT NULL",
+      model: "TEXT NOT NULL",
+      capValue: "REAL NOT NULL CHECK (capValue > 0)",
+      capUnit: "TEXT NOT NULL CHECK (capUnit IN ('percent', 'requests', 'tokens', 'usd'))",
+    },
+    primaryKey: "PRIMARY KEY (poolId, apiKeyId, model)",
+  },
+
+  quotaSnapshots: {
+    columns: {
+      id: "INTEGER PRIMARY KEY AUTOINCREMENT",
+      provider: "TEXT NOT NULL",
+      connectionId: "TEXT NOT NULL",
+      windowKey: "TEXT NOT NULL",
+      remainingPercent: "REAL",
+      isExhausted: "INTEGER DEFAULT 0",
+      nextResetAt: "TEXT",
+      windowDurationMs: "INTEGER",
+      rawData: "TEXT",
+      createdAt: "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_qs_provider ON quotaSnapshots(provider)",
+      "CREATE INDEX IF NOT EXISTS idx_qs_conn ON quotaSnapshots(connectionId)",
+      "CREATE INDEX IF NOT EXISTS idx_qs_window ON quotaSnapshots(windowKey)",
+    ],
+  },
+
+  domainState: {
+    columns: {
+      scope: "TEXT NOT NULL",
+      key: "TEXT NOT NULL",
+      value: "TEXT NOT NULL",
+    },
+    primaryKey: "PRIMARY KEY (scope, key)",
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_ds_scope ON domainState(scope)",
     ],
   },
 };
