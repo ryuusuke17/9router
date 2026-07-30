@@ -23,8 +23,28 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { getApiKeyByValue } from "@/lib/db/index.js";
+import { getProviderConnections } from "@/lib/localDb";
 import { enforceQuotaShare } from "@/lib/quota/enforce.js";
 import { scheduleRecordConsumption, buildConsumptionCost } from "@/lib/quota/spendRecorder.js";
+import {
+  isProviderInCooldown,
+  isProviderFullyBlocked,
+  getProviderShortestCooldownMs,
+  recordProviderFailure,
+  clearProviderFailure,
+} from "open-sse/services/accountFallback.js";
+import {
+  acquire as acquireAccountSemaphore,
+  resolveAccountSemaphoreKey,
+  resolveAccountSemaphoreMaxConcurrency,
+  isSemaphoreCapacityError,
+} from "open-sse/services/accountSemaphore.js";
+import { getProxyHash } from "@/lib/network/connectionProxy.js";
+
+function checkCircuitBreaker(provider, proxyHash = null, enabled = true) {
+  if (!enabled) return false;
+  return proxyHash ? isProviderInCooldown(provider, proxyHash) : isProviderFullyBlocked(provider);
+}
 
 /**
  * Handle chat completion request
@@ -204,10 +224,37 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
 
+  const chatSettings = await getSettings();
+  const circuitBreakerEnabled = chatSettings.circuitBreakerEnabled !== false && chatSettings.circuitBreakerEnabled !== 0;
+
+  // Pipeline gate: check circuit breaker state BEFORE credential lookup.
+  if (checkCircuitBreaker(provider, null, circuitBreakerEnabled)) {
+    const cooldownMs = getProviderShortestCooldownMs(provider);
+    const retryAfterSec = Math.ceil(cooldownMs / 1000) || 30;
+    const retryAfterTimestamp = new Date(Date.now() + cooldownMs).toISOString();
+    log.warn("GATE", `${provider} circuit breaker OPEN on all proxy buckets — short-circuiting before credential lookup`);
+    return unavailableResponse(
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      `[${provider}/${model}] Provider temporarily unavailable (circuit breaker open)`,
+      retryAfterTimestamp,
+      `${retryAfterSec}s`
+    );
+  }
+
+  // Count configured accounts for this provider so chatCore can cap per-account retries
+  let providerAccountCount = 0;
+  try {
+    const allProviderConnections = await getProviderConnections({ provider });
+    providerAccountCount = allProviderConnections?.length || 0;
+  } catch (e) {
+    log?.warn?.("AUTH", `Failed to count provider connections for ${provider}: ${e.message}`);
+  }
+
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
   let lastError = null;
   let lastStatus = null;
+  let lastExcludedConnectionId = null;
 
   while (true) {
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
@@ -228,7 +275,19 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
 
-    // Account selection shown in the unified "▶" line (acc:...)
+    // Compute proxy bucket key for this account
+    const proxyHash = getProxyHash(credentials.providerSpecificData);
+
+    // Proxy-aware circuit breaker: skip THIS account if its proxy bucket is OPEN
+    if (checkCircuitBreaker(provider, proxyHash, circuitBreakerEnabled)) {
+      log.warn("AUTH", `${provider} proxy bucket ${proxyHash} circuit breaker OPEN — skipping account ${credentials.connectionName}`);
+      excludeConnectionIds.add(credentials.connectionId);
+      lastExcludedConnectionId = credentials.connectionId;
+      continue;
+    }
+
+    log.info("AUTH", `Using ${provider} account: ${credentials.connectionName}`);
+
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
     // Ensure real project ID is available for providers that need it (P0 fix: cold miss)
@@ -238,6 +297,24 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         refreshedCredentials.projectId = pid;
         // Persist to DB in background so subsequent requests have it immediately
         updateProviderCredentials(credentials.connectionId, { projectId: pid }).catch(() => { });
+      }
+    }
+
+    // Acquire account semaphore (concurrency limiter per provider:account:proxy)
+    const semaphoreKey = resolveAccountSemaphoreKey({ provider, model, connectionId: credentials.connectionId, credentials: refreshedCredentials, proxyHash });
+    const semaphoreMax = resolveAccountSemaphoreMaxConcurrency(refreshedCredentials);
+    const semaphoreEnabled = chatSettings.semaphoreEnabled !== false && chatSettings.semaphoreEnabled !== 0;
+    let semaphoreRelease = () => {};
+    if (semaphoreEnabled && semaphoreKey && semaphoreMax != null) {
+      try {
+        semaphoreRelease = await acquireAccountSemaphore(semaphoreKey, { maxConcurrency: semaphoreMax, timeoutMs: 30_000 });
+      } catch (e) {
+        if (isSemaphoreCapacityError(e)) {
+          log.warn("AUTH", `Account ${credentials.connectionName} at capacity, trying fallback`);
+          excludeConnectionIds.add(credentials.connectionId);
+          continue;
+        }
+        throw e;
       }
     }
 
@@ -253,6 +330,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         if (quotaResult.kind === "block") {
           const retryAfter = quotaResult.retryAfterSeconds ?? 30;
           log.warn("QUOTA", `[${provider}/${model}] Quota blocked: ${quotaResult.reason}`);
+          semaphoreRelease();
           await markAccountUnavailable(
             credentials.connectionId,
             quotaResult.httpStatus || 429,
@@ -269,47 +347,52 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
-    // Use shared chatCore
-    const chatSettings = await getSettings();
+    // Use shared chatCore — wrap in try/finally so semaphoreRelease() always runs
+    let result;
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
-      modelInfo: { provider, model },
-      credentials: refreshedCredentials,
-      log,
-      clientRawRequest,
-      connectionId: credentials.connectionId,
-      userAgent,
-      apiKey,
-      ccFilterNaming: !!chatSettings.ccFilterNaming,
-      rtkEnabled: !!chatSettings.rtkEnabled,
-      headroomEnabled: !!chatSettings.headroomEnabled,
-      headroomUrl: chatSettings.headroomUrl || DEFAULT_HEADROOM_URL,
-      headroomCompressUserMessages: !!chatSettings.headroomCompressUserMessages,
-      cavemanEnabled: !!chatSettings.cavemanEnabled,
-      cavemanLevel: chatSettings.cavemanLevel || "full",
-      ponytailEnabled: !!chatSettings.ponytailEnabled,
-      ponytailLevel: chatSettings.ponytailLevel || "full",
-      pxpipeEnabled: !!chatSettings.pxpipeEnabled,
-      pxpipeMinChars: chatSettings.pxpipeMinChars,
-      pxpipeTimeoutMs: chatSettings.pxpipeTimeoutMs,
-      // Lazily warms the in-process module on first use; null when not installed (fail-open)
-      pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
-      onPxpipeEvent: appendPxpipeEvent,
-      providerThinking,
-      // Detect source format by endpoint + body
-      sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
-      onCredentialsRefreshed: async (newCreds) => {
-        await updateProviderCredentials(credentials.connectionId, {
-          ...newCreds,
-          existingProviderSpecificData: credentials.providerSpecificData,
-          testStatus: "active"
-        });
-      },
-      onRequestSuccess: async () => {
-        await clearAccountError(credentials.connectionId, credentials, model);
-      }
-    });
+    const loopGuardEnabled = chatSettings.loopGuardEnabled !== false && chatSettings.loopGuardEnabled !== 0;
+    try {
+      result = await handleChatCore({
+        body: { ...body, model: `${provider}/${model}` },
+        modelInfo: { provider, model, accountCount: providerAccountCount },
+        credentials: refreshedCredentials,
+        log,
+        clientRawRequest,
+        connectionId: credentials.connectionId,
+        userAgent,
+        apiKey,
+        ccFilterNaming: !!chatSettings.ccFilterNaming,
+        rtkEnabled: !!chatSettings.rtkEnabled,
+        headroomEnabled: !!chatSettings.headroomEnabled,
+        headroomUrl: chatSettings.headroomUrl || DEFAULT_HEADROOM_URL,
+        headroomCompressUserMessages: !!chatSettings.headroomCompressUserMessages,
+        cavemanEnabled: !!chatSettings.cavemanEnabled,
+        cavemanLevel: chatSettings.cavemanLevel || "full",
+        ponytailEnabled: !!chatSettings.ponytailEnabled,
+        ponytailLevel: chatSettings.ponytailLevel || "full",
+        pxpipeEnabled: !!chatSettings.pxpipeEnabled,
+        pxpipeMinChars: chatSettings.pxpipeMinChars,
+        pxpipeTimeoutMs: chatSettings.pxpipeTimeoutMs,
+        pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
+        onPxpipeEvent: appendPxpipeEvent,
+        loopGuardEnabled,
+        providerThinking,
+        sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
+        onCredentialsRefreshed: async (newCreds) => {
+          await updateProviderCredentials(credentials.connectionId, {
+            ...newCreds,
+            existingProviderSpecificData: credentials.providerSpecificData,
+            testStatus: "active"
+          });
+        },
+        onRequestSuccess: async () => {
+          await clearAccountError(credentials.connectionId, credentials, model);
+          clearProviderFailure(provider, proxyHash);
+        }
+      });
+    } finally {
+      semaphoreRelease();
+    }
 
     if (result.success) {
       if (apiKeyId) {
@@ -327,13 +410,19 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return result.response;
     }
 
+    // Normalize result.error to a string before passing to error matchers
+    const errorText = result.error?.message || result.error;
+
+    // Record provider-level failure for circuit breaker (skip for client-side errors)
+    recordProviderFailure(provider, result.status, errorText, log, credentials.connectionId, proxyHash);
+
     // Mark account unavailable (auto-calculates cooldown with exponential backoff, or precise resetsAtMs)
-    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, result.resetsAtMs);
+    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, errorText, provider, model, result.resetsAtMs);
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
       excludeConnectionIds.add(credentials.connectionId);
-      lastError = result.error;
+      lastError = errorText;
       lastStatus = result.status;
       continue;
     }

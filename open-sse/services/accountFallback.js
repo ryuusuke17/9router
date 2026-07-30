@@ -1,4 +1,12 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
+import {
+  getCircuitBreaker,
+  getAllCircuitBreakerStatuses,
+  resetCircuitBreaker,
+  PROVIDER_FAILURE_ERROR_CODES,
+} from "../utils/circuitBreaker.js";
+import { classify429 } from "../utils/classify429.js";
+import { getProviderResilienceProfile } from "../config/providerProfiles.js";
 
 /**
  * Calculate exponential backoff cooldown for rate limits (429)
@@ -212,4 +220,188 @@ export function applyErrorState(account, status, errorText) {
     lastError: { status, message: errorText, timestamp: new Date().toISOString() },
     status: "error"
   };
+}
+
+// ── Provider-level circuit breaker ──────────────────────────────────
+
+export function isProviderInCooldown(provider, proxyHash = "direct") {
+  if (!provider) return false;
+  const breaker = getCircuitBreaker(`${provider}:${proxyHash}`);
+  return breaker ? !breaker.canExecute() : false;
+}
+
+export function getProviderCooldownRemainingMs(provider, proxyHash = "direct") {
+  if (!provider) return null;
+  const breaker = getCircuitBreaker(`${provider}:${proxyHash}`);
+  if (!breaker || breaker.canExecute()) return null;
+  const remaining = breaker.getRetryAfterMs();
+  return remaining > 0 ? remaining : null;
+}
+
+export function getProviderBreakerState(provider, proxyHash = "direct") {
+  if (!provider) return null;
+  const breaker = getCircuitBreaker(`${provider}:${proxyHash}`);
+  return breaker?.getStatus?.() ?? null;
+}
+
+const _lastProviderFailure = new Map();
+const _dedupMs = 5_000;
+const _dedupMaxSize = 10_000;
+
+export function clearProviderFailureDedup() {
+  _lastProviderFailure.clear();
+}
+
+export function recordProviderFailure(provider, statusCode, errorText, log, connectionId, proxyHash = "direct") {
+  if (!provider) return;
+
+  if (connectionId) {
+    const dedupKey = `${provider}:${proxyHash}:${connectionId}`;
+    const now = Date.now();
+    const last = _lastProviderFailure.get(dedupKey);
+    if (last && now - last < _dedupMs) return;
+    _lastProviderFailure.set(dedupKey, now);
+    if (_lastProviderFailure.size > _dedupMaxSize) {
+      const evictCount = Math.floor(_dedupMaxSize / 10);
+      const keysToEvict = Array.from(_lastProviderFailure.keys()).slice(0, evictCount);
+      for (const key of keysToEvict) _lastProviderFailure.delete(key);
+    }
+  }
+
+  if (statusCode && !PROVIDER_FAILURE_ERROR_CODES.has(statusCode)) return;
+
+  const profile = getProviderResilienceProfile(provider);
+  const breakerKey = `${provider}:${proxyHash}`;
+  const breaker = getCircuitBreaker(breakerKey, {
+    failureThreshold: profile.providerFailureThreshold,
+    failureWindowMs: profile.providerFailureWindowMs,
+    resetTimeout: profile.providerCooldownMs,
+  });
+  if (!breaker) return;
+  if (!breaker.canExecute()) return;
+
+  breaker._onFailure({ statusCode, message: errorText });
+
+  if (!breaker.canExecute()) {
+    log?.warn?.(`[ProviderFailure] ${breakerKey}: circuit breaker opened after ${breaker.failureCount} failures`);
+  }
+}
+
+export function clearProviderFailure(provider, proxyHash = "direct") {
+  if (!provider) return;
+  resetCircuitBreaker(`${provider}:${proxyHash}`);
+}
+
+export function isProviderFailureCode(status) {
+  return PROVIDER_FAILURE_ERROR_CODES.has(status);
+}
+
+export function getProvidersInCooldown() {
+  return getAllCircuitBreakerStatuses()
+    .filter((s) => {
+      const breaker = getCircuitBreaker(s.name);
+      return Boolean(breaker && !breaker.canExecute());
+    })
+    .map((s) => ({
+      provider: s.name,
+      failureCount: s.failureCount,
+      cooldownRemainingMs: s.retryAfterMs || null,
+      lastFailureAt: s.lastFailureTime,
+    }));
+}
+
+export function isProviderFullyBlocked(provider) {
+  if (!provider) return false;
+  const all = getAllCircuitBreakerStatuses();
+  const providerBreakers = all.filter((s) => {
+    const name = s.name || "";
+    return name === provider || name.startsWith(`${provider}:`);
+  });
+  if (providerBreakers.length === 0) return false;
+  return providerBreakers.every((s) => {
+    const breaker = getCircuitBreaker(s.name);
+    return Boolean(breaker && !breaker.canExecute());
+  });
+}
+
+export function getProviderShortestCooldownMs(provider) {
+  if (!provider) return 0;
+  const all = getAllCircuitBreakerStatuses();
+  let shortest = Infinity;
+  for (const s of all) {
+    const name = s.name || "";
+    if (name !== provider && !name.startsWith(`${provider}:`)) continue;
+    const breaker = getCircuitBreaker(s.name);
+    if (breaker && !breaker.canExecute()) {
+      const remaining = breaker.getRetryAfterMs();
+      if (remaining > 0 && remaining < shortest) shortest = remaining;
+    }
+  }
+  return Number.isFinite(shortest) ? shortest : 0;
+}
+
+export function isKimchiQuotaExhausted(provider, errorText) {
+  if (!errorText || provider !== "kimchi") return false;
+  const text = typeof errorText === "string"
+    ? errorText
+    : (() => { try { return JSON.stringify(errorText); } catch { return String(errorText); } })();
+  const patterns = [
+    /credits?.{0,20}exhausted/i,
+    /quota.{0,20}exhausted/i,
+    /no remaining credits/i,
+    /insufficient[ _-]?credits/i,
+    /payment.{0,10}required/i,
+    /has exhausted its credits/i,
+  ];
+  return patterns.some(p => p.test(text));
+}
+
+export function getNextDayReset(now = new Date()) {
+  const d = new Date(now.getTime());
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
+}
+
+export function buildKimchiQuotaExhaustedUpdate(now = new Date()) {
+  const reset = getNextDayReset(now);
+  return {
+    isActive: false,
+    rateLimitedUntil: reset.toISOString(),
+    testStatus: "quota_exhausted",
+    lastErrorType: "quota_exhausted",
+    errorCode: 402,
+    quotaExhaustedAt: now.toISOString(),
+    quotaResetsAt: reset.toISOString(),
+  };
+}
+
+export function buildKimchiQuotaReactivatedUpdate() {
+  return {
+    isActive: true,
+    rateLimitedUntil: null,
+    testStatus: "active",
+    quotaExhaustedAt: null,
+    quotaResetsAt: null,
+  };
+}
+
+export function detectDailyQuotaExhaustion(provider, errorText) {
+  if (!errorText || provider === "kimchi") return null;
+  const text = typeof errorText === "string"
+    ? errorText
+    : (() => { try { return JSON.stringify(errorText); } catch { return String(errorText); } })();
+  const classification = classify429({ status: 429, body: text, provider });
+  if (classification.kind !== "daily_quota") return null;
+  return classification;
+}
+
+export function buildDailyQuotaLockUpdate(model, now = new Date()) {
+  if (!model) return {};
+  const resetMs = getMsUntilTomorrowMidnightUTC(now);
+  const key = getModelLockKey(model);
+  return { [key]: new Date(now.getTime() + resetMs).toISOString() };
+}
+
+function getMsUntilTomorrowMidnightUTC(now = new Date()) {
+  const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+  return Math.max(tomorrow.getTime() - now.getTime(), 1000);
 }

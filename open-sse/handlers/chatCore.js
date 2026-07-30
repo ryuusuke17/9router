@@ -22,6 +22,8 @@ import { detectClientTool, isNativePassthrough } from "../utils/clientDetector.j
 import { dedupeTools } from "../utils/toolDeduper.js";
 import { injectCaveman } from "../rtk/caveman.js";
 import { injectPonytail } from "../rtk/ponytail.js";
+import { detectLoop } from "../utils/loopGuard.js";
+import { injectTerminationPrompt, injectToolProtocolPrompt } from "../rtk/terminationPrompt.js";
 import { compressMessages, formatRtkLog } from "../rtk/index.js";
 import { compressWithHeadroom, formatHeadroomLog, formatHeadroomSizeLog, isHeadroomPhantomSavings } from "../rtk/headroom.js";
 import { compressWithPxpipe } from "../rtk/pxpipe.js";
@@ -31,6 +33,64 @@ import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { extractThinking } from "../translator/concerns/thinkingUnified.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 
+const TOOL_PROTOCOL_PROMPT_PROVIDERS = new Set(["kimchi", "nvidia"]);
+
+export function needsTerminationPrompt(provider, model) {
+  return /(?:^|[/_-])kimi(?:[/_-]|$)|(?:^|[/_-])kimi-k2\.(?:6|7)(?:\b|[-_/])/i.test(`${provider}/${model}`);
+}
+
+export function isNvidiaKimiStreamCoerce(provider, model) {
+  return provider === "nvidia" && /kimi-k2\.[67]/i.test(model || "");
+}
+
+function extractToolNames(tools) {
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .map((tool) => tool?.function?.name || tool?.name)
+    .filter((name) => typeof name === "string" && name.trim());
+}
+
+/**
+ * Loop guard: detect repeated tool_call patterns in the translated conversation
+ * history and, when found, append a stop-and-summarize hint to the last
+ * user/tool message so the model breaks out of the loop. Stateless — reads
+ * translatedBody.messages only. Idempotent: a hint already present is not
+ * re-appended. Returns true when a hint was injected.
+ */
+export function applyLoopGuard(translatedBody, finalFormat, provider, model, log) {
+  const loopCheck = detectLoop(translatedBody);
+  if (!loopCheck.detected) return false;
+  injectTerminationPrompt(translatedBody, finalFormat);
+  const msgs = translatedBody?.messages;
+  if (Array.isArray(msgs)) {
+    let target = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m && (m.role === "user" || m.role === "tool")) {
+        target = m;
+        break;
+      }
+      if (m && m.role === "assistant" && i === msgs.length - 1) {
+        target = m;
+        break;
+      }
+    }
+    if (target) {
+      const hint = `\n\n[ROUTER NOTE: ${loopCheck.hint}]`;
+      if (typeof target.content === "string") {
+        if (!target.content.includes("[ROUTER NOTE:")) target.content += hint;
+      } else if (Array.isArray(target.content)) {
+        if (!target.content.some((p) => p.text && p.text.includes("[ROUTER NOTE:")))
+          target.content.push({ type: "text", text: hint });
+      } else {
+        target.content = hint.trimStart();
+      }
+    }
+  }
+  log?.warn?.("LOOPGUARD", `${provider}/${model} | loop detected, hint injected`);
+  return true;
+}
+
 /**
  * Core chat handler - shared between SSE and Worker
  * @param {object} options.body - Request body
@@ -38,7 +98,7 @@ import { resolveSessionId } from "../utils/sessionManager.js";
  * @param {object} options.credentials - Provider credentials
  * @param {string} options.sourceFormatOverride - Override detected source format (e.g. "openai-responses")
  */
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, loopGuardEnabled = true }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -223,6 +283,24 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   if (tokenSaverEnabled && ponytailEnabled && ponytailLevel) {
     injectPonytail(translatedBody, finalFormat, ponytailLevel);
     xf.push(`PONYTAIL:${ponytailLevel}`);
+  }
+
+  // Tool Protocol Prompt: for kimchi/nvidia providers
+  if (TOOL_PROTOCOL_PROMPT_PROVIDERS.has(provider)) {
+    injectToolProtocolPrompt(translatedBody, finalFormat, extractToolNames(translatedBody.tools));
+  }
+
+  // Loop Guard: detect and break repeating loops
+  if (tokenSaverEnabled && loopGuardEnabled) {
+    if (applyLoopGuard(translatedBody, finalFormat, provider, model, log)) {
+      xf.push("LOOPGUARD");
+    }
+  }
+
+  // Termination Prompt: for kimi-based models
+  if (needsTerminationPrompt(provider, model)) {
+    injectTerminationPrompt(translatedBody, finalFormat);
+    xf.push("TERMINATE");
   }
 
   // PXPIPE: image bulky context (Claude-format bodies only), last saver before dispatch

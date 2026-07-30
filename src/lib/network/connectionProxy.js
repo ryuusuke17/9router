@@ -185,3 +185,21 @@ export async function resolveConnectionProxyConfig(
     };
   }
 }
+
+function djb2(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+export function getProxyHash(providerSpecificData = {}) {
+  const enabled = providerSpecificData?.connectionProxyEnabled === true;
+  const url = enabled ? normalizeString(providerSpecificData?.connectionProxyUrl) : "";
+  if (url) return `proxy-${djb2(url)}`;
+  const poolId = normalizeString(providerSpecificData?.proxyPoolId);
+  if (poolId) return `pool-${djb2(poolId)}`;
+  return "direct";
+}
