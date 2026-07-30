@@ -1,4 +1,4 @@
-# v0.5.40 (2026-07-20)
+# v0.5.45.1 (2026-07-30)
 
 ## Features
 - **i18n**: add Khmer (km) translations
