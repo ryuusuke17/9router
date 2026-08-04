@@ -1,8 +1,32 @@
-const MICROSOFT_TOKEN_ENDPOINT_HOSTS = new Set([
+/**
+ * kiroExternalIdp.js — shared helpers for Kiro / Amazon Q External IdP
+ * (enterprise "Your organization" SSO) accounts.
+ *
+ * Unlike AWS Builder ID / IAM Identity Center (which mint AWS SSO-OIDC tokens)
+ * or the Google/GitHub social flow, an External IdP login federates through the
+ * organization's own identity provider (Microsoft Entra, Okta, Auth0, etc.).
+ * Its refresh token is refreshed with a standard public-client OAuth2
+ * refresh_token grant against the org IdP's tokenEndpoint.
+ */
+
+const ALLOWED_IDP_HOST_SUFFIXES = [
   "login.microsoftonline.com",
+  "login.microsoftonline.us",
+  "login.partner.microsoftonline.cn",
   "login.microsoft.com",
   "login.windows.net",
-]);
+  "sts.windows.net",
+  ".okta.com",
+  ".oktapreview.com",
+  ".okta-emea.com",
+  ".auth0.com",
+  ".onelogin.com",
+  ".pingidentity.com",
+  ".pingone.com",
+  "accounts.google.com",
+  "oauth2.googleapis.com",
+  ".amazoncognito.com",
+];
 
 const DEFAULT_REGION = "us-east-1";
 const DEFAULT_EXPIRES_IN = 3600;
@@ -11,24 +35,37 @@ function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function validateMicrosoftTokenEndpoint(rawEndpoint) {
+/** True when a connection's providerSpecificData marks it as an External IdP login. */
+export function isExternalIdpAuthMethod(authMethod) {
+  return normalizeString(authMethod).toLowerCase() === "external_idp";
+}
+
+/**
+ * Validate the IdP token endpoint before it is used as a fetch target. Requires
+ * https and a host on ALLOWED_IDP_HOST_SUFFIXES. Returns the normalized URL string.
+ */
+export function validateExternalIdpTokenEndpoint(rawEndpoint) {
   const tokenEndpoint = normalizeString(rawEndpoint);
-  if (!tokenEndpoint) throw new Error("token_endpoint is required");
+  if (!tokenEndpoint) throw new Error("tokenEndpoint is required for external_idp");
 
   let parsed;
   try {
     parsed = new URL(tokenEndpoint);
   } catch {
-    throw new Error("token_endpoint must be a valid URL");
+    throw new Error("tokenEndpoint must be a valid URL");
   }
 
   if (parsed.protocol !== "https:") {
-    throw new Error("token_endpoint must use https");
+    throw new Error("tokenEndpoint must use https");
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (!MICROSOFT_TOKEN_ENDPOINT_HOSTS.has(host)) {
-    throw new Error("token_endpoint must be a Microsoft login endpoint");
+  const allowed = ALLOWED_IDP_HOST_SUFFIXES.some((suffix) =>
+    suffix.startsWith(".") ? host.endsWith(suffix) : host === suffix
+  );
+
+  if (!allowed) {
+    throw new Error(`tokenEndpoint host is not an allowed identity provider: ${host}`);
   }
 
   return parsed.toString();
@@ -52,6 +89,14 @@ export function decodeJwtPayload(jwt) {
   } catch {
     return null;
   }
+}
+
+/** Extract email from an External IdP access token JWT. */
+export function emailFromExternalIdpToken(accessToken) {
+  const claims = decodeJwtPayload(accessToken);
+  if (!claims) return null;
+  const pick = (k) => (typeof claims[k] === "string" ? claims[k] : undefined);
+  return pick("email") || pick("preferred_username") || pick("upn") || null;
 }
 
 function resolveExpiresAt(input) {
@@ -96,7 +141,7 @@ export function normalizeKiroExternalIdpAuth(rawAuth) {
   const accessToken = normalizeString(input.access_token || input.accessToken);
   const refreshToken = normalizeString(input.refresh_token || input.refreshToken);
   const clientId = normalizeString(input.client_id || input.clientId);
-  const tokenEndpoint = validateMicrosoftTokenEndpoint(input.token_endpoint || input.tokenEndpoint);
+  const tokenEndpoint = validateExternalIdpTokenEndpoint(input.token_endpoint || input.tokenEndpoint);
   const profileArn = normalizeString(input.profile_arn || input.profileArn);
   const region = normalizeString(input.region) || DEFAULT_REGION;
   const scope = normalizeScope(input.scopes || input.scope);
@@ -107,8 +152,7 @@ export function normalizeKiroExternalIdpAuth(rawAuth) {
   if (!scope) throw new Error("scopes is required");
   if (!profileArn) throw new Error("profile_arn is required");
 
-  const payload = decodeJwtPayload(accessToken);
-  const email = input.email || payload?.email || payload?.preferred_username || payload?.upn || payload?.sub || null;
+  const email = emailFromExternalIdpToken(accessToken) || input.email || null;
 
   return {
     accessToken,
@@ -129,7 +173,9 @@ export function normalizeKiroExternalIdpAuth(rawAuth) {
 
 export function buildExternalIdpRefreshParams(refreshToken, providerSpecificData = {}) {
   const clientId = normalizeString(providerSpecificData.clientId || providerSpecificData.client_id);
-  const tokenEndpoint = validateMicrosoftTokenEndpoint(providerSpecificData.tokenEndpoint || providerSpecificData.token_endpoint);
+  const tokenEndpoint = validateExternalIdpTokenEndpoint(
+    providerSpecificData.tokenEndpoint || providerSpecificData.token_endpoint
+  );
   const scope = normalizeScope(providerSpecificData.scope || providerSpecificData.scopes);
 
   if (!refreshToken) throw new Error("refresh token is required");

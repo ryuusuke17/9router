@@ -177,8 +177,10 @@ export class KiroService {
   async refreshToken(refreshToken, providerSpecificData = {}) {
     const { authMethod, clientId, clientSecret, region } = providerSpecificData;
 
-    // AWS SSO OIDC refresh (Builder ID or IDC)
-    if (clientId && clientSecret) {
+    // AWS SSO OIDC refresh (Builder ID or IDC).
+    // Imported social tokens (authMethod === "imported") have a registered clientId/clientSecret
+    // but a Kiro-social refresh token the OIDC client can't refresh — use the social path (#2467).
+    if (clientId && clientSecret && authMethod !== "imported") {
       const safeRegion = region || "us-east-1";
       assertValidAwsRegion(safeRegion);
       const endpoint = `https://oidc.${safeRegion}.amazonaws.com/token`;
@@ -197,6 +199,62 @@ export class KiroService {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+
+        // AWS SSO OIDC uses {"__type": "InvalidGrantException"} error format (not standard OAuth2).
+        let awsErrorType;
+        try {
+          const awsError = JSON.parse(errorText);
+          awsErrorType = awsError.__type || awsError.error;
+        } catch {
+          // not JSON
+        }
+
+        // If the refresh token itself is expired/revoked, no amount of re-registration helps.
+        if (
+          awsErrorType === "InvalidGrantException" ||
+          awsErrorType === "ExpiredTokenException" ||
+          awsErrorType === "invalid_grant"
+        ) {
+          console.error("[kiro refresh] AWS refresh token expired/invalid. Re-authentication required.", awsErrorType);
+          throw new Error(`Token refresh failed: ${awsErrorType} — re-authentication required`);
+        }
+
+        // Client credentials may be expired or invalid — re-register a fresh OIDC client
+        // and retry once before giving up (#2524).
+        console.warn("[kiro refresh] OIDC refresh failed, attempting client re-registration...");
+        try {
+          const newReg = await this.registerClient(safeRegion);
+          const retryRes = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientId: newReg.clientId,
+              clientSecret: newReg.clientSecret,
+              refreshToken,
+              grantType: "refresh_token",
+            }),
+          });
+
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            return {
+              accessToken: retryData.accessToken,
+              refreshToken: retryData.refreshToken || refreshToken,
+              expiresIn: retryData.expiresIn || 3600,
+              _newClientId: newReg.clientId,
+              _newClientSecret: newReg.clientSecret,
+              _newClientSecretExpiresAt: newReg.clientSecretExpiresAt,
+            };
+          } else {
+            const retryError = await retryRes.text();
+            throw new Error(`Token refresh retry failed after re-registration: ${retryError}`);
+          }
+        } catch (reRegErr) {
+          if (reRegErr.message?.includes("Token refresh retry failed")) throw reRegErr;
+          console.warn("[kiro refresh] Re-registration fallback failed:", reRegErr);
+        }
+
         const error = await response.text();
         throw new Error(`Token refresh failed: ${error}`);
       }
@@ -205,8 +263,7 @@ export class KiroService {
       return {
         accessToken: data.accessToken,
         refreshToken: data.refreshToken || refreshToken,
-        profileArn: data.profileArn,
-        expiresIn: data.expiresIn,
+        expiresIn: data.expiresIn || 3600,
       };
     }
 
