@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from "open-sse/config/providers.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
+import { resolveQoderCredentials, resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { normalizeProviderId } from "@/lib/providerNormalization";
 import { getWebCookieValidator } from "open-sse/utils/webCookieValidation.js";
 
@@ -52,7 +53,7 @@ async function probeMediaProvider(provider, apiKey) {
   const isMediaOnly = kinds.every((k) => MEDIA_KINDS.has(k));
   if (!isMediaOnly) return null;
   const cfg = p.ttsConfig || p.sttConfig || p.embeddingConfig || p.imageConfig || p.videoConfig || p.musicConfig;
-  // No probe config → best-effort accept (validate at usage time)
+  // No probe config â†’ best-effort accept (validate at usage time)
   if (!cfg) return true;
   if (p.noAuth || cfg.authType === "none") return true;
   // Skip auth schemes that need provider-specific data
@@ -131,7 +132,7 @@ export async function POST(request) {
         if (modelsRes.status === 401 || modelsRes.status === 403) {
           return NextResponse.json({ valid: false, error: "Invalid API key" });
         }
-        // Fallback: probe /embeddings with a common test model — many providers lack /models
+        // Fallback: probe /embeddings with a common test model â€” many providers lack /models
         const embedRes = await fetch(`${baseUrl}/embeddings`, {
           method: "POST",
           headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -376,7 +377,7 @@ export async function POST(request) {
             ...Object.fromEntries(
               Object.entries(PROVIDERS).filter(([, t]) => t.validateUrl).map(([id, t]) => [id, t.validateUrl])
             ),
-            // dynamic URLs (depend on providerSpecificData) — kept inline
+            // dynamic URLs (depend on providerSpecificData) â€” kept inline
             "ollama-local": `${resolveOllamaLocalHost({ providerSpecificData })}/api/tags`,
             "xiaomi-tokenplan": `${resolveXiaomiTokenplanBaseUrl({ providerSpecificData })}/models`,
           };
@@ -466,7 +467,7 @@ export async function POST(request) {
             // Validate SA JSON has required fields
             isValid = !!(saJson.client_email && saJson.private_key && saJson.project_id);
           } else {
-            // Raw key: probe Vertex — 404 means key is valid (model just doesn't exist), 401 means invalid key
+            // Raw key: probe Vertex â€” 404 means key is valid (model just doesn't exist), 401 means invalid key
             const probeRes = await fetch(
               `https://aiplatform.googleapis.com/v1/publishers/google/models/__probe__:generateContent?key=${apiKey}`,
               { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
@@ -486,6 +487,59 @@ export async function POST(request) {
               { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
             );
             isValid = probeRes.status !== 401 && probeRes.status !== 403;
+          }
+          break;
+        }
+        case "grok-web": {
+          const token = apiKey.startsWith("sso=") ? apiKey.slice(4) : apiKey;
+          // Cloudflare-bypass: send POST with same browser fingerprint headers as GrokWebExecutor
+          const randomHex = (n) => {
+            const a = new Uint8Array(n);
+            crypto.getRandomValues(a);
+            return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+          };
+          const statsigId = Buffer.from("e:TypeError: Cannot read properties of null (reading 'children')").toString("base64");
+          const traceId = randomHex(16);
+          const spanId = randomHex(8);
+          const res = await fetch("https://grok.com/rest/app-chat/conversations/new", {
+            method: "POST",
+            headers: {
+              Accept: "*/*",
+              "Accept-Encoding": "gzip, deflate, br, zstd",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Cache-Control": "no-cache",
+              "Content-Type": "application/json",
+              Cookie: `sso=${token}`,
+              Origin: "https://grok.com",
+              Pragma: "no-cache",
+              Referer: "https://grok.com/",
+              "Sec-Ch-Ua": '"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"',
+              "Sec-Ch-Ua-Mobile": "?0",
+              "Sec-Ch-Ua-Platform": '"macOS"',
+              "Sec-Fetch-Dest": "empty",
+              "Sec-Fetch-Mode": "cors",
+              "Sec-Fetch-Site": "same-origin",
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+              "x-statsig-id": statsigId,
+              "x-xai-request-id": crypto.randomUUID(),
+              traceparent: `00-${traceId}-${spanId}-00`,
+            },
+            body: JSON.stringify({
+              temporary: true, modelName: "grok-4", modelMode: "MODEL_MODE_GROK_4", message: "ping",
+              fileAttachments: [], imageAttachments: [],
+              disableSearch: false, enableImageGeneration: false, returnImageBytes: false,
+              returnRawGrokInXaiRequest: false, enableImageStreaming: false, imageGenerationCount: 0,
+              forceConcise: false, toolOverrides: {}, enableSideBySide: true, sendFinalMetadata: true,
+              isReasoning: false, disableTextFollowUps: true, disableMemory: true,
+              forceSideBySide: false, isAsyncChat: false, disableSelfHarmShortCircuit: false,
+            }),
+          });
+          // Cookie valid = any non-401/403 response (200, 400, 429 all mean cookie accepted)
+          if (res.status === 401 || res.status === 403) {
+            isValid = false;
+            error = "Invalid SSO cookie ΓÇö re-paste from grok.com DevTools ΓåÆ Cookies ΓåÆ sso";
+          } else {
+            isValid = true;
           }
           break;
         }

@@ -87,5 +87,7 @@ graphify-out/*
 .PR/
 .next-analyze/*
 
+.fakehome/
+
 dev-server.log
 dev-server-err.log
