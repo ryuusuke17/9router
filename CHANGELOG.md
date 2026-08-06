@@ -1,3 +1,11 @@
+# v0.5.50.1 (2026-08-07)
+
+## Merge
+- Merged upstream v0.5.50 (2026-08-05) into local fork, keeping local features:
+  token-saver/loopGuard, structured cookie auth fields (`hasAuthFields`), quota watchdog,
+  Kiro device-flow OAuth, and expanded provider model registries.
+- Version bumped to v0.5.50.1 for both `9router-app` and the `9router` CLI package.
+
 # v0.5.50 (2026-08-05)
 
 ## Features
