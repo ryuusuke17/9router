@@ -121,14 +121,6 @@ export async function POST(request) {
   }
 }
 
-function resolveAid(hint, signatureJwt, deviceId) {
-  return (hint || "").trim() || decodeAidFromRaycastJwt(signatureJwt) || deviceId;
-}
-
-function resolveAid(hint, signatureJwt, deviceId) {
-  return (hint || "").trim() || decodeAidFromRaycastJwt(signatureJwt) || deviceId;
-}
-
 /**
  * GET /api/oauth/raycast/import
  * Instructions for required Raycast fields.
