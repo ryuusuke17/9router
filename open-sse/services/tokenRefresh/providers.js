@@ -379,7 +379,7 @@ export async function refreshKiroToken(refreshToken, providerSpecificData, log, 
       // and retry once before giving up (#2524).
       log?.warn?.("TOKEN_REFRESH", "Kiro OIDC refresh failed, attempting client re-registration...");
       try {
-        const { KiroService } = await import("../../../../src/lib/oauth/services/kiro.js");
+        const { KiroService } = await import("../../../src/lib/oauth/services/kiro.js");
         const kiroService = new KiroService();
         const newReg = await kiroService.registerClient(resolvedRegion);
         const retryRes = await proxyAwareFetch(endpoint, {

@@ -1,3 +1,4 @@
+// NOTE: still needs fixing — requires a logged-in Devin account (`devin auth login`). Not production-ready.
 export default {
   id: "devin-cli",
   alias: "dv",

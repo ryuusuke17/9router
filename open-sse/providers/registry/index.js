@@ -119,6 +119,15 @@ import p116 from "./tokenrouter.js";
 import p117 from "./selfhosted-stt.js";
 import p118 from "./selfhosted-tts.js";
 import p119 from "./selfhosted-embedding.js";
+import p120 from "./blackbox-web.js";
+import p121 from "./chatgpt-web.js";
+import p122 from "./deepseek-web.js";
+import p123 from "./gemini-web.js";
+import p124 from "./kimi-web.js";
+import p125 from "./qwen-web.js";
+import p126 from "./zenmux-free.js";
+import p127 from "./raycast.js";
+import p128 from "./devin-cli-agentic.js";
 
 export default [
   p0,
@@ -239,4 +248,13 @@ export default [
   p117,
   p118,
   p119,
+  p120,
+  p121,
+  p122,
+  p123,
+  p124,
+  p125,
+  p126,
+  p127,
+  p128,
 ];

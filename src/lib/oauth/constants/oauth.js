@@ -86,6 +86,10 @@ export const CURSOR_CONFIG = {
   },
 };
 
+// Raycast Pro AI OAuth Configuration (token import — reverse-engineered, unofficial API).
+// Captured Bearer + X-Raycast-DeviceId (+ optional X-Raycast-Signature JWT) required.
+export const RAYCAST_CONFIG = { ...PROVIDER_OAUTH["raycast"] };
+
 // Kimi Code OAuth (Device Code Flow) — merged into provider id `kimi` (dual auth)
 // clientId: registry first, env override for forks
 export const KIMI_CONFIG = {
@@ -223,4 +227,5 @@ export const PROVIDERS = {
   TRAE: "trae",
   WINDSURF: "windsurf",
   ZED: "zed",
+  RAYCAST: "raycast",
 };

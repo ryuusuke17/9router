@@ -31,6 +31,8 @@ import ZedExecutor from "./zed.js";
 import WindsurfExecutor from "./windsurf.js";
 import { DefaultExecutor } from "./default.js";
 import { DevinCliExecutor } from "./devin-cli.js";
+import { DevinCliAgenticExecutor } from "./devin-cli-agentic.js";
+import { RaycastExecutor } from "./raycast.js";
 
 const executors = {
   antigravity: new AntigravityExecutor(),
@@ -70,6 +72,10 @@ const executors = {
   zed: new ZedExecutor(),
   windsurf: new WindsurfExecutor(),
   "devin-cli": new DevinCliExecutor(),
+  "devin-cli-agentic": new DevinCliAgenticExecutor(),
+  dva: new DevinCliAgenticExecutor(), // Alias
+  raycast: new RaycastExecutor(),
+  rc: new RaycastExecutor(), // Alias
 };
 
 const defaultCache = new Map();
@@ -118,3 +124,5 @@ export { default as TraeExecutor } from "./trae.js";
 export { default as ZedExecutor } from "./zed.js";
 export { default as WindsurfExecutor } from "./windsurf.js";
 export { DevinCliExecutor } from "./devin-cli.js";
+export { DevinCliAgenticExecutor } from "./devin-cli-agentic.js";
+export { RaycastExecutor } from "./raycast.js";
