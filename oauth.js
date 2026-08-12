@@ -86,6 +86,10 @@ export const CURSOR_CONFIG = {
   },
 };
 
+// Raycast Pro AI OAuth Configuration (token import — reverse-engineered, unofficial API).
+// Captured Bearer + X-Raycast-DeviceId (+ optional X-Raycast-Signature JWT) required.
+export const RAYCAST_CONFIG = { ...PROVIDER_OAUTH["raycast"] };
+
 // Kimi Code OAuth (Device Code Flow) — merged into provider id `kimi` (dual auth)
 // clientId: registry first, env override for forks
 export const KIMI_CONFIG = {
@@ -161,7 +165,7 @@ export const TRAE_CONFIG = {
   oauthTimeoutMs: 600_000,
 };
 
-// Windsurf OAuth — authorization_code (implicit) flow with local callback.
+// Windsurf / Devin CLI OAuth — authorization_code (implicit) flow with local callback.
 //   1) Browser opens windsurf.com/windsurf/signin?response_type=token&client_id=...&redirect_uri=${cb}
 //   2) Redirect → ${cb}?access_token=${firebaseJWT}&state=...
 //   3) POST RegisterUser {firebase_id_token} → {apiKey, apiServerUrl, name}
@@ -223,4 +227,5 @@ export const PROVIDERS = {
   TRAE: "trae",
   WINDSURF: "windsurf",
   ZED: "zed",
+  RAYCAST: "raycast",
 };

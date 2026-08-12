@@ -299,10 +299,6 @@ Default URLs:
         <b>Grok Build</b>
       </td>
       <td align="center" width="120">
-        <img src="./public/providers/devin-cli.png" width="60" alt="Devin CLI"/><br/>
-        <b>Devin CLI</b>
-      </td>
-      <td align="center" width="120">
         <img src="./public/providers/deepseek-tui.png" width="60" alt="DeepSeek TUI"/><br/>
         <b>DeepSeek TUI</b>
       </td>

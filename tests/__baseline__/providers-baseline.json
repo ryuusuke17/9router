@@ -968,7 +968,42 @@
   "tokenrouter": {
     "baseUrl": "https://api.tokenrouter.com/v1/chat/completions",
     "validateUrl": "https://api.tokenrouter.com/v1/models",
-    "thinkingFormat": "openai",
+    "thinkingFormat": "tokenrouter",
     "format": "openai"
+  },
+  "blackbox-web": {
+    "baseUrl": "https://app.blackbox.ai/api/chat",
+    "format": "blackbox-web",
+    "authType": "cookie"
+  },
+  "chatgpt-web": {
+    "baseUrl": "https://chatgpt.com/backend-api/conversation",
+    "format": "chatgpt-web",
+    "authType": "cookie"
+  },
+  "deepseek-web": {
+    "baseUrl": "https://chat.deepseek.com/api/v0/chat/completion",
+    "format": "deepseek-web",
+    "authType": "cookie"
+  },
+  "gemini-web": {
+    "baseUrl": "https://gemini.google.com/app",
+    "format": "gemini-web",
+    "authType": "cookie"
+  },
+  "kimi-web": {
+    "baseUrl": "https://www.kimi.com",
+    "format": "kimi-web",
+    "authType": "cookie"
+  },
+  "qwen-web": {
+    "baseUrl": "https://chat.qwen.ai/api/v2/chat/completions",
+    "format": "qwen-web",
+    "authType": "cookie"
+  },
+  "zenmux-free": {
+    "baseUrl": "https://zenmux.ai/api/anthropic/v1/messages",
+    "format": "zenmux-free",
+    "authType": "cookie"
   }
 }

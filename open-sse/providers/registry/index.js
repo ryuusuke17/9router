@@ -112,7 +112,6 @@ import p110 from "./llm7.js";
 import p111 from "./sambanova.js";
 import p112 from "./tencent.js";
 import p113 from "./morph.js";
-// import p114 from "./devin-cli.js";
 // import p104 from "./windsurf.js";
 import p115 from "./poolside.js";
 import p116 from "./tokenrouter.js";
@@ -126,8 +125,6 @@ import p123 from "./gemini-web.js";
 import p124 from "./kimi-web.js";
 import p125 from "./qwen-web.js";
 import p126 from "./zenmux-free.js";
-import p127 from "./raycast.js";
-import p128 from "./devin-cli-agentic.js";
 
 export default [
   p0,
@@ -241,7 +238,6 @@ export default [
   p111,
   p112,
   p113,
-  // p114, // devin-cli — hidden, spawns local agent with shell/fs access
   // p104, // windsurf — hidden, no tool calling
   p115,
   p116,
@@ -255,6 +251,4 @@ export default [
   p124,
   p125,
   p126,
-  p127,
-  p128,
 ];

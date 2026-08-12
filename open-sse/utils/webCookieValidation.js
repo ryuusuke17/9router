@@ -77,7 +77,7 @@ export async function validateQwenWeb(apiKey, fetchFn = defaultFetch) {
 
 export async function validateKimiWeb(apiKey, fetchFn = defaultFetch) {
   const accessToken = apiKey.replace(/^access_token=/, "");
-  const res = await fetchFn("https://www.kimi.com/api/user/info", {
+  const res = await fetchFn("https://www.kimi.com/api/user", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
@@ -128,6 +128,57 @@ export async function validateZenmuxFree(apiKey, fetchFn = defaultFetch) {
   return { valid, error: valid ? null : "ZenMux Free: cookies expired or invalid — re-export ALL cookies from zenmux.ai (ctoken + sessionId + sessionId.sig)" };
 }
 
+export async function validateGrokWeb(apiKey, fetchFn = defaultFetch) {
+  const token = apiKey.startsWith("sso=") ? apiKey.slice(4) : apiKey;
+  // Cloudflare-bypass: send POST with same browser fingerprint headers as GrokWebExecutor
+  const randomHex = (n) => {
+    const a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  };
+  const statsigId = Buffer.from("e:TypeError: Cannot read properties of null (reading 'children')").toString("base64");
+  const traceId = randomHex(16);
+  const spanId = randomHex(8);
+  const res = await fetchFn("https://grok.com/rest/app-chat/conversations/new", {
+    method: "POST",
+    headers: {
+      Accept: "*/*",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/json",
+      Cookie: `sso=${token}`,
+      Origin: "https://grok.com",
+      Pragma: "no-cache",
+      Referer: "https://grok.com/",
+      "Sec-Ch-Ua": '"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"macOS"',
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      "x-statsig-id": statsigId,
+      "x-xai-request-id": crypto.randomUUID(),
+      traceparent: `00-${traceId}-${spanId}-00`,
+    },
+    body: JSON.stringify({
+      temporary: true, modelName: "grok-4", modelMode: "MODEL_MODE_GROK_4", message: "ping",
+      fileAttachments: [], imageAttachments: [],
+      disableSearch: false, enableImageGeneration: false, returnImageBytes: false,
+      returnRawGrokInXaiRequest: false, enableImageStreaming: false, imageGenerationCount: 0,
+      forceConcise: false, toolOverrides: {}, enableSideBySide: true, sendFinalMetadata: true,
+      isReasoning: false, disableTextFollowUps: true, disableMemory: true,
+      forceSideBySide: false, isAsyncChat: false, disableSelfHarmShortCircuit: false,
+    }),
+  });
+  // Cookie valid = any non-401/403 response (200, 400, 429 all mean cookie accepted)
+  if (res.status === 401 || res.status === 403) {
+    return { valid: false, error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso" };
+  }
+  return { valid: true, error: null };
+}
+
 export async function validatePerplexityWeb(apiKey, fetchFn = defaultFetch) {
   let sessionToken = apiKey;
   if (sessionToken.startsWith("__Secure-next-auth.session-token=")) {
@@ -172,6 +223,7 @@ const validators = {
   "blackbox-web": validateBlackboxWeb,
   "zenmux-free": validateZenmuxFree,
   "perplexity-web": validatePerplexityWeb,
+  "grok-web": validateGrokWeb,
 };
 
 export function getWebCookieValidator(provider) {
