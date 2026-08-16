@@ -11,6 +11,7 @@ import { CursorExecutor } from "./cursor.js";
 import { VertexExecutor } from "./vertex.js";
 import { OpenCodeExecutor } from "./opencode.js";
 import { OpenCodeGoExecutor } from "./opencode-go.js";
+import { GrokWebExecutor } from "./grok-web.js";
 import { GrokCliExecutor } from "./grok-cli.js";
 import { ChatGPTWebExecutor } from "./chatgpt-web.js";
 import { GeminiWebExecutor } from "./gemini-web.js";
@@ -53,6 +54,7 @@ const executors = {
   "qwen-web": new QwenWebExecutor(),
   "kimi-web": new KimiWebExecutor(),
   "blackbox-web": new BlackboxWebExecutor(),
+  "grok-web": new GrokWebExecutor(),
   "grok-cli": new GrokCliExecutor(),
   gcli: new GrokCliExecutor(), // Alias
   gb: new GrokCliExecutor(), // Alias (Grok Build)
@@ -97,6 +99,7 @@ export { VertexExecutor } from "./vertex.js";
 export { DefaultExecutor } from "./default.js";
 export { OpenCodeExecutor } from "./opencode.js";
 export { OpenCodeGoExecutor } from "./opencode-go.js";
+export { GrokWebExecutor } from "./grok-web.js";
 export { GrokCliExecutor } from "./grok-cli.js";
 export { ChatGPTWebExecutor } from "./chatgpt-web.js";
 export { GeminiWebExecutor } from "./gemini-web.js";

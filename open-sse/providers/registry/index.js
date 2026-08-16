@@ -125,6 +125,8 @@ import p123 from "./gemini-web.js";
 import p124 from "./kimi-web.js";
 import p125 from "./qwen-web.js";
 import p126 from "./zenmux-free.js";
+import p127 from "./fish-audio.js";
+import p128 from "./alitp-intl.js";
 
 export default [
   p0,
@@ -251,4 +253,6 @@ export default [
   p124,
   p125,
   p126,
+  p127,
+  p128,
 ];
