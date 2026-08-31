@@ -412,7 +412,7 @@ export default function TokenSaverClient() {
     patchSetting({ pxpipeMinChars: next });
   };
 
-<  const updateGuard = (key, value) => {
+  const updateGuard = (key, value) => {
     setGuards((prev) => ({ ...prev, [key]: value }));
     patchSetting({ [`${key}Enabled`]: value });
   };

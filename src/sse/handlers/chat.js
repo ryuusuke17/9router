@@ -330,7 +330,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
-<    // Acquire account semaphore (concurrency limiter per provider:account:proxy)
+    // Acquire account semaphore (concurrency limiter per provider:account:proxy)
     const semaphoreKey = resolveAccountSemaphoreKey({ provider, model, connectionId: credentials.connectionId, credentials: refreshedCredentials, proxyHash });
     const semaphoreMax = resolveAccountSemaphoreMaxConcurrency(refreshedCredentials);
     const semaphoreEnabled = chatSettings.semaphoreEnabled !== false && chatSettings.semaphoreEnabled !== 0;
@@ -447,7 +447,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Record provider-level failure for circuit breaker (skip for client-side errors)
     recordProviderFailure(provider, result.status, errorText, log, credentials.connectionId, proxyHash);
 
-<    // Antigravity 409/429: refresh live quota to get exact resetAt before locking
+    // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;
     let resetsAtMs = result.resetsAtMs;
     if (provider === "antigravity" && (result.status === 409 || result.status === 429)) {
