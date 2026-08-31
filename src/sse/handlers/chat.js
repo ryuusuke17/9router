@@ -7,6 +7,7 @@ import {
   extractApiKey,
   isValidApiKey,
 } from "../services/auth.js";
+import { handleAntigravityQuotaError } from "../services/antigravityQuota.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
@@ -329,7 +330,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     }
 
-    // Acquire account semaphore (concurrency limiter per provider:account:proxy)
+<    // Acquire account semaphore (concurrency limiter per provider:account:proxy)
     const semaphoreKey = resolveAccountSemaphoreKey({ provider, model, connectionId: credentials.connectionId, credentials: refreshedCredentials, proxyHash });
     const semaphoreMax = resolveAccountSemaphoreMaxConcurrency(refreshedCredentials);
     const semaphoreEnabled = chatSettings.semaphoreEnabled !== false && chatSettings.semaphoreEnabled !== 0;
@@ -395,6 +396,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         headroomEnabled: !!chatSettings.headroomEnabled,
         headroomUrl: chatSettings.headroomUrl || DEFAULT_HEADROOM_URL,
         headroomCompressUserMessages: !!chatSettings.headroomCompressUserMessages,
+        headroomTimeoutMs: chatSettings.headroomTimeoutMs,
         cavemanEnabled: !!chatSettings.cavemanEnabled,
         cavemanLevel: chatSettings.cavemanLevel || "full",
         ponytailEnabled: !!chatSettings.ponytailEnabled,
@@ -445,8 +447,22 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Record provider-level failure for circuit breaker (skip for client-side errors)
     recordProviderFailure(provider, result.status, errorText, log, credentials.connectionId, proxyHash);
 
-    // Mark account unavailable (auto-calculates cooldown with exponential backoff, or precise resetsAtMs)
-    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, errorText, provider, model, result.resetsAtMs);
+<    // Antigravity 409/429: refresh live quota to get exact resetAt before locking
+    let quotaResetMs = null;
+    let resetsAtMs = result.resetsAtMs;
+    if (provider === "antigravity" && (result.status === 409 || result.status === 429)) {
+      quotaResetMs = await handleAntigravityQuotaError(
+        credentials.connectionId, result.status, model,
+        refreshedCredentials.accessToken, credentials.providerSpecificData
+      );
+      if (quotaResetMs) resetsAtMs = quotaResetMs;
+    }
+
+    // Exhausted Antigravity model is blocked only in RAM cache until upstream resetAt.
+    // Do not persist a modelLock_* for this path. Fork keeps errorText (normalized) over raw result.error.
+    const { shouldFallback } = provider === "antigravity" && quotaResetMs
+      ? { shouldFallback: true }
+      : await markAccountUnavailable(credentials.connectionId, result.status, errorText, provider, model, resetsAtMs);
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
