@@ -1,8 +1,13 @@
+import {
+  CODEX_MODELS,
+  CODEX_OAUTH,
+  CODEX_TRANSPORT,
+} from "./codex.js";
+
 export default {
   id: "chatgpt-web",
   priority: 130,
-  alias: "cgpt-web",
-  aliases: ["cgptw"],
+  alias: "cgptw",
   uiAlias: "cgptw",
   display: {
     name: "ChatGPT Web (Pro/Plus)",
@@ -11,25 +16,13 @@ export default {
     textIcon: "CW",
     website: "https://chatgpt.com",
     notice: {
-      text: "Paste your __Secure-next-auth.session-token cookie from chatgpt.com after logging in with a Plus/Pro subscription.",
+      text: "Sign in through OpenAI OAuth. Browser-cookie import is not supported.",
       signupUrl: "https://chatgpt.com",
     },
   },
-  category: "webCookie",
-  authType: "cookie",
-  authHint: "Paste the full Cookie header from chatgpt.com (must include __Secure-next-auth.session-token + cf_clearance)",
-  transport: {
-    baseUrl: "https://chatgpt.com/backend-api/conversation",
-    format: "chatgpt-web",
-    authType: "cookie",
-  },
-  models: [
-    { id: "gpt-5.6-pro", name: "GPT-5.6 Pro" },
-    { id: "gpt-5.6-thinking", name: "GPT-5.6 Thinking" },
-    { id: "gpt-5.5-pro-extended", name: "GPT-5.5 Pro Extended" },
-    { id: "gpt-5.5-pro", name: "GPT-5.5 Pro" },
-    { id: "gpt-5.5-thinking", name: "GPT-5.5 Thinking" },
-    { id: "gpt-5.5", name: "GPT-5.5 Instant" },
-    { id: "o3", name: "o3" },
-  ],
+  category: "oauth",
+  transport: CODEX_TRANSPORT,
+  models: CODEX_MODELS,
+  serviceKinds: ["llm", "image"],
+  oauth: CODEX_OAUTH,
 };

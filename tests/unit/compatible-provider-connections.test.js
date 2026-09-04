@@ -33,7 +33,12 @@ async function setupTestContext(nodeData) {
     POST,
     getProviderConnections,
     cleanup() {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      } catch (error) {
+        // ponytail: Windows may retain sql.js temp handles briefly; cleanup on next OS temp sweep.
+        if (error.code !== "EPERM") throw error;
+      }
     },
   };
 }
@@ -166,4 +171,5 @@ describe("compatible provider connections API", () => {
     expectCompatibleConnection(storedConnections[0], ctx.node, { apiType: "chat" });
     expectCompatibleConnection(storedConnections[1], ctx.node, { apiType: "chat" });
   });
+
 });

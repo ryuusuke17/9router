@@ -301,11 +301,13 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 <div key={f.key}>
                   <Input
                     label={f.label}
-                    type={f.type === "password" ? "password" : "text"}
+                    type={f.type === "textarea" ? "textarea" : f.type === "password" ? "password" : "text"}
                     value={authFieldValues[f.key] || ""}
                     onChange={(e) => setAuthFieldValues({ ...authFieldValues, [f.key]: e.target.value })}
                     placeholder={f.placeholder || ""}
                     hint={f.helper || ""}
+                    autoComplete={f.type === "textarea" ? "off" : undefined}
+                    spellCheck={f.type === "textarea" ? false : undefined}
                   />
                 </div>
               ))}

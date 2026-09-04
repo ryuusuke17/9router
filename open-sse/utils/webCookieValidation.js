@@ -6,23 +6,6 @@ async function defaultFetch(url, opts) {
   return fetch(url, opts);
 }
 
-export async function validateChatgptWeb(apiKey, fetchFn = defaultFetch) {
-  const sessionToken = apiKey.replace(/^__Secure-next-auth\.session-token=/, "").replace(/^__Host-authjs\.session-token=/, "");
-  const res = await fetchFn("https://chatgpt.com/backend-api/models", {
-    headers: {
-      Cookie: `__Secure-next-auth.session-token=${sessionToken}`,
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      Accept: "application/json",
-      Origin: "https://chatgpt.com",
-      Referer: "https://chatgpt.com/",
-    },
-  });
-  if (res.status === 401 || res.status === 403) {
-    return { valid: false, error: "Invalid session cookie — re-paste __Secure-next-auth.session-token from chatgpt.com" };
-  }
-  return { valid: true, error: null };
-}
-
 export async function validateGeminiWeb(apiKey, fetchFn = defaultFetch) {
   const psid = apiKey.replace(/^__Secure-1PSID=/, "");
   const res = await fetchFn("https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate", {
@@ -215,7 +198,6 @@ export async function validatePerplexityWeb(apiKey, fetchFn = defaultFetch) {
 }
 
 const validators = {
-  "chatgpt-web": validateChatgptWeb,
   "gemini-web": validateGeminiWeb,
   "deepseek-web": validateDeepseekWeb,
   "qwen-web": validateQwenWeb,

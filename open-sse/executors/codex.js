@@ -115,18 +115,18 @@ function normalizeCodexTools(body) {
 }
 
 // Resolve prompt-cache session id: client session → assistant-text-hash → workspaceId → connection
-function resolveCacheSessionId(body, credentials) {
+function resolveCacheSessionId(body, credentials, scope = "codex") {
   return resolveSessionId({
     headers: credentials?.rawHeaders,
     body,
     connectionId: credentials?.connectionId,
     workspaceId: credentials?.providerSpecificData?.workspaceId,
-    scope: "codex"
+    scope,
   });
 }
 
-function normalizeReasoningEffort(model, value) {
-  const supportedLevels = getThinkingLevels("codex", model);
+function normalizeReasoningEffort(provider, model, value) {
+  const supportedLevels = getThinkingLevels(provider, model);
   if (supportedLevels?.includes(value)) return value;
   if (value === "ultra" && supportedLevels?.includes("max")) return "max";
   if (value === "max" || value === "ultra") return "xhigh";
@@ -190,8 +190,9 @@ function codexSseErrorResponse(status, message) {
  * Automatically injects default instructions if missing
  */
 export class CodexExecutor extends BaseExecutor {
-  constructor() {
-    super("codex", PROVIDERS.codex);
+  constructor(provider = "codex") {
+    super(provider, PROVIDERS[provider]);
+    this.modelAlias = provider === "chatgpt-web" ? "cgptw" : "cx";
     this._currentSessionId = null;
   }
 
@@ -226,11 +227,11 @@ export class CodexExecutor extends BaseExecutor {
 
   async refreshCredentials(credentials, log) {
     if (!credentials?.refreshToken) return null;
-    return refreshProviderCredentials("codex", credentials, log);
+    return refreshProviderCredentials(this.provider, credentials, log);
   }
 
   needsRefresh(credentials) {
-    return shouldRefreshCredentials("codex", credentials);
+    return shouldRefreshCredentials(this.provider, credentials);
   }
 
   /**
@@ -394,7 +395,7 @@ export class CodexExecutor extends BaseExecutor {
     this._isCompact = !!body._compact;
     delete body._compact;
     // Resolve conversation-stable session_id (priority: body → assistant-text → workspace → machine)
-    this._currentSessionId = resolveCacheSessionId(body, credentials);
+    this._currentSessionId = resolveCacheSessionId(body, credentials, this.provider);
     // Convert string input to array format (Codex API requires input as array)
     const normalized = normalizeResponsesInput(body.input);
     if (normalized) body.input = normalized;
@@ -428,7 +429,7 @@ export class CodexExecutor extends BaseExecutor {
     }
 
     // Map virtual Codex review models to the upstream Codex model before suffix parsing.
-    body.model = getModelUpstreamId("cx", body.model || model);
+    body.model = getModelUpstreamId(this.modelAlias, body.model || model);
 
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
@@ -445,10 +446,10 @@ export class CodexExecutor extends BaseExecutor {
 
     // Priority: explicit reasoning.effort > reasoning_effort param > model suffix > default (medium)
     if (!body.reasoning) {
-      const effort = normalizeReasoningEffort(body.model, body.reasoning_effort || modelEffort || 'low');
+      const effort = normalizeReasoningEffort(this.provider, body.model, body.reasoning_effort || modelEffort || 'low');
       body.reasoning = { effort, summary: "auto" };
     } else {
-      body.reasoning.effort = normalizeReasoningEffort(body.model, body.reasoning.effort);
+      body.reasoning.effort = normalizeReasoningEffort(this.provider, body.model, body.reasoning.effort);
       if (!body.reasoning.summary) body.reasoning.summary = "auto";
     }
     delete body.reasoning_effort;

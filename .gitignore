@@ -91,3 +91,6 @@ graphify-out/*
 
 dev-server.log
 dev-server-err.log
+
+# Kiro local workspace state
+.kiro/

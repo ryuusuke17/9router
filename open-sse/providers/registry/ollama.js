@@ -39,7 +39,16 @@ export default {
     { id: "qwen3.5:397b", name: "Qwen 3.5 397B" },
     { id: "qwen3.5", name: "Qwen3.5" },
   ],
-  serviceKinds: ["llm"],
+  serviceKinds: ["llm", "webFetch"],
+  fetchConfig: {
+    baseUrl: "https://ollama.com/api/web_fetch",
+    method: "POST",
+    authType: "apikey",
+    authHeader: "bearer",
+    formats: ["markdown"],
+    maxCharacters: 200000,
+    timeoutMs: 30000,
+  },
   features: {
     usage: true,
     usageApikey: true,

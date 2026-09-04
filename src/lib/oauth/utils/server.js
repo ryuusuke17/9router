@@ -139,11 +139,12 @@ const pendingExchanges = new Map();
  * Register a pending exchange session for server-side mode.
  * Modal client calls this before opening popup.
  */
-export function registerCodexSession({ state, codeVerifier, redirectUri }) {
+export function registerCodexSession({ state, codeVerifier, redirectUri, provider = "codex" }) {
   if (!state || !codeVerifier || !redirectUri) return false;
   pendingExchanges.set(state, {
     codeVerifier,
     redirectUri,
+    provider,
     status: "pending",
     createdAt: Date.now(),
   });
@@ -225,14 +226,14 @@ export function startCodexProxy(appPort) {
           const { createProviderConnection } = await import("@/models");
 
           const tokenData = await exchangeTokens(
-            "codex",
+            session.provider,
             code,
             session.redirectUri,
             session.codeVerifier,
             state
           );
           const connection = await createProviderConnection({
-            provider: "codex",
+            provider: session.provider,
             authType: "oauth",
             ...tokenData,
             expiresAt: tokenData.expiresIn

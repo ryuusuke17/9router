@@ -43,20 +43,53 @@ function randomHex(bytes) {
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function parseOpenAIMessages(messages) {
+function formatToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return "";
+  return toolCalls.map((toolCall) => {
+    const name = toolCall.function?.name || "unknown";
+    const args = toolCall.function?.arguments || "{}";
+    const id = toolCall.id || "";
+    return `[Calling tool: ${name}(${args})${id ? ` id=${id}` : ""}]`;
+  }).join("\n");
+}
+
+function formatToolsHint(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return "";
+  const lines = tools.map((tool) => {
+    const fn = tool?.function || tool || {};
+    const name = fn.name || "unnamed";
+    const description = (fn.description || "").split("\n")[0].slice(0, 200);
+    return `- ${name}: ${description}`;
+  });
+  return `Available tools (reference only, cannot invoke):\n${lines.join("\n")}`;
+}
+
+function parseOpenAIMessages(messages, tools) {
   const extracted = [];
   for (const msg of messages) {
     let role = String(msg.role || "user");
     if (role === "developer") role = "system";
+
+    if (role === "tool") {
+      const result = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
+      const callId = msg.tool_call_id || "";
+      extracted.push({ role, text: `[Tool result${callId ? ` for ${callId}` : ""}]: ${result}` });
+      continue;
+    }
+
     let content = "";
     if (typeof msg.content === "string") {
       content = msg.content;
     } else if (Array.isArray(msg.content)) {
-      content = msg.content.filter((c) => c.type === "text").map((c) => String(c.text || "")).join(" ");
+      content = msg.content.filter((part) => part.type === "text").map((part) => String(part.text || "")).join(" ");
     }
-    if (!content.trim()) continue;
-    extracted.push({ role, text: content });
+    const toolCalls = role === "assistant" ? formatToolCalls(msg.tool_calls) : "";
+    if (!content.trim() && !toolCalls) continue;
+    extracted.push({ role, text: [content.trim(), toolCalls].filter(Boolean).join("\n") });
   }
+
+  const toolsHint = formatToolsHint(tools);
+  if (toolsHint) extracted.unshift({ role: "system", text: toolsHint });
 
   let lastUserIdx = -1;
   for (let i = extracted.length - 1; i >= 0; i--) {
@@ -236,7 +269,7 @@ export class GrokWebExecutor extends BaseExecutor {
     if (!modelInfo) log?.info?.("GROK-WEB", `Unmapped model ${model}, defaulting to grok-4.1-fast`);
     const { grokModel, modelMode, isThinking } = modelInfo || MODEL_MAP["grok-4.1-fast"];
 
-    const message = parseOpenAIMessages(messages);
+    const message = parseOpenAIMessages(messages, body?.tools);
     if (!message.trim()) {
       const errResp = new Response(JSON.stringify({
         error: { message: "Empty query after processing", type: "invalid_request" },

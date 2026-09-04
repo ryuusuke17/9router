@@ -321,10 +321,12 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
                 <div key={f.key}>
                   <Input
                     label={f.label}
-                    type={f.type === "password" ? "password" : "text"}
+                    type={f.type === "textarea" ? "textarea" : f.type === "password" ? "password" : "text"}
                     value={authFieldValues[f.key] || ""}
                     onChange={(e) => setAuthFieldValues({ ...authFieldValues, [f.key]: e.target.value })}
                     placeholder={f.placeholder || ""}
+                    autoComplete={f.type === "textarea" ? "off" : undefined}
+                    spellCheck={f.type === "textarea" ? false : undefined}
                   />
                   {f.helper && (
                     <p className="text-xs text-text-muted mt-1 whitespace-pre-wrap">{f.helper}</p>

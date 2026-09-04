@@ -120,8 +120,8 @@ export async function GET(request, { params }) {
         const result = await startZedProxy(searchParams.get("native_app_port") || ZED_HOSTED_CONFIG.defaultNativeAppPort);
         return NextResponse.json(result);
       }
-      if (!["codex", "xai"].includes(provider)) {
-        return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
+      if (!["codex", "chatgpt-web", "xai"].includes(provider)) {
+        return NextResponse.json({ error: "Proxy only supported for OpenAI OAuth, xai, trae, windsurf, or zed" }, { status: 400 });
       }
       const appPort = searchParams.get("app_port");
       if (!appPort) {
@@ -137,7 +137,7 @@ export async function GET(request, { params }) {
       if (result.success && state && codeVerifier && redirectUri) {
         serverSide = provider === "xai"
           ? registerXaiSession({ state, codeVerifier, redirectUri })
-          : registerCodexSession({ state, codeVerifier, redirectUri });
+          : registerCodexSession({ state, codeVerifier, redirectUri, provider });
       }
       return NextResponse.json({ ...result, serverSide });
     }
@@ -152,7 +152,7 @@ export async function GET(request, { params }) {
       else if (provider === "windsurf") session = getWindsurfSessionStatus(state);
       else if (provider === "zed") session = getZedSessionStatus(state);
       else if (provider === "xai") session = getXaiSessionStatus(state);
-      else if (provider === "codex") session = getCodexSessionStatus(state);
+      else if (provider === "codex" || provider === "chatgpt-web") session = getCodexSessionStatus(state);
       else return NextResponse.json({ error: "Poll only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
       if (!session) return NextResponse.json({ status: "unknown" });
       if (session.status === "done" || session.status === "error") {
@@ -172,7 +172,7 @@ export async function GET(request, { params }) {
       else if (provider === "windsurf") stopWindsurfProxy();
       else if (provider === "zed") stopZedProxy();
       else if (provider === "xai") stopXaiProxy();
-      else if (provider === "codex") stopCodexProxy();
+      else if (provider === "codex" || provider === "chatgpt-web") stopCodexProxy();
       else return NextResponse.json({ error: "Proxy only supported for codex/xai/trae/windsurf/zed" }, { status: 400 });
       return NextResponse.json({ success: true });
     }
@@ -298,6 +298,13 @@ export async function POST(request, { params }) {
         } catch (err) {
           return NextResponse.json({ error: err.message }, { status: 500 });
         }
+      }
+
+      if (provider === "chatgpt-web" && code && code.startsWith("eyJ") && code.includes(".")) {
+        return NextResponse.json(
+          { error: "ChatGPT Web requires OpenAI OAuth. Paste the authorization callback URL instead." },
+          { status: 400 }
+        );
       }
 
       // Detect if "code" is actually a raw JWT access token (starts with eyJ)

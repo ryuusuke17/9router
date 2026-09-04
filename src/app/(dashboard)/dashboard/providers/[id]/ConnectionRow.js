@@ -138,23 +138,22 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   return (
     <div className={`group flex min-w-0 flex-col gap-3 rounded-lg p-2 transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between ${connection.isActive === false ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-start gap-2 sm:items-center sm:gap-3">
-        {/* Priority arrows */}
         <div className="flex shrink-0 flex-col">
-          <button
-            onClick={onMoveUp}
-            disabled={isFirst}
-            className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
-          >
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
-          </button>
-          <button
-            onClick={onMoveDown}
-            disabled={isLast}
-            className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
-          >
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
-          </button>
-        </div>
+            <button
+              onClick={onMoveUp}
+              disabled={isFirst}
+              className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
+            >
+              <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
+            </button>
+            <button
+              onClick={onMoveDown}
+              disabled={isLast}
+              className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
+            >
+              <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+            </button>
+          </div>
         <span className="material-symbols-outlined shrink-0 text-base text-text-muted">
           {authIcon}
         </span>
@@ -212,7 +211,6 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
       </div>
       <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
         <div className="grid flex-1 grid-cols-3 gap-1 sm:flex sm:flex-none">
-          {/* Proxy button with inline dropdown */}
           {(proxyPools || []).length > 0 && (
             <div className="relative" ref={proxyDropdownRef}>
               <button
@@ -258,9 +256,9 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             </Tooltip>
           )}
           <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
-            <span className="material-symbols-outlined text-[18px]">edit</span>
-            <span className="text-[10px] leading-tight">Edit</span>
-          </button>
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+              <span className="text-[10px] leading-tight">Edit</span>
+            </button>
           <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>

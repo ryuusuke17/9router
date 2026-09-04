@@ -8,6 +8,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 // Providers using the dynamic-port local callback proxy.
 // Browser OAuth: popup → auto callback → auto exchange → poll-status.
 const PROXY_OAUTH_PROVIDERS = new Set(["trae", "windsurf", "zed"]);
+const OPENAI_OAUTH_PROVIDERS = new Set(["codex", "chatgpt-web"]);
 
 // Providers offering a paste-token fallback (import-token flow).
 // UX warns if the IDE (which issues the token) is not installed.
@@ -294,7 +295,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       // Authorization code flow - build redirect URI (some providers require fixed ports)
       const appPort = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
       let redirectUri;
-      if (provider === "codex") {
+      if (OPENAI_OAUTH_PROVIDERS.has(provider)) {
         redirectUri = "http://localhost:1455/auth/callback";
       } else if (provider === "xai") {
         redirectUri = "http://127.0.0.1:56121/callback";
@@ -312,22 +313,22 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Codex: start proxy with server-side session (auto-exchange) + fallback to channels
-      let codexProxyActive = false;
-      let codexServerSide = false;
-      if (provider === "codex") {
+      // OpenAI OAuth: fixed loopback callback with server-side exchange.
+      let openAiProxyActive = false;
+      let openAiServerSide = false;
+      if (OPENAI_OAUTH_PROVIDERS.has(provider)) {
         try {
-          const proxyUrl = new URL(`/api/oauth/codex/start-proxy`, window.location.origin);
+          const proxyUrl = new URL(`/api/oauth/${provider}/start-proxy`, window.location.origin);
           proxyUrl.searchParams.set("app_port", appPort);
           proxyUrl.searchParams.set("state", data.state);
           proxyUrl.searchParams.set("code_verifier", data.codeVerifier);
           proxyUrl.searchParams.set("redirect_uri", redirectUri);
           const proxyRes = await fetch(proxyUrl.toString());
           const proxyData = await proxyRes.json();
-          codexProxyActive = proxyData.success;
-          codexServerSide = !!proxyData.serverSide;
+          openAiProxyActive = proxyData.success;
+          openAiServerSide = !!proxyData.serverSide;
         } catch {
-          codexProxyActive = false;
+          openAiProxyActive = false;
         }
       }
 
@@ -354,7 +355,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         }
       }
 
-      setAuthData({ ...data, redirectUri, codexServerSide, xaiServerSide });
+      setAuthData({ ...data, redirectUri, openAiServerSide, xaiServerSide });
 
       // Guard: device_code providers return authUrl:null from /authorize. Never window.open(null)
       // (browsers coerce it to the relative path ".../null").
@@ -367,7 +368,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         throw new Error("No authorization URL returned from OAuth provider");
       }
 
-      if (provider === "codex" && codexProxyActive) {
+      if (OPENAI_OAUTH_PROVIDERS.has(provider) && openAiProxyActive) {
         // Proxy active: callback will be handled server-side (auto-exchange) or via channels (fallback)
         setStep("waiting");
         popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
@@ -380,12 +381,12 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         if (!popupRef.current) {
           setStep("input");
         }
-      } else if (!isLocalhost || provider === "codex" || provider === "xai") {
+      } else if (!isLocalhost || OPENAI_OAUTH_PROVIDERS.has(provider) || provider === "xai") {
         // Non-localhost or proxy failed: manual input mode
         setStep("input");
         window.open(data.authUrl, "_blank");
       } else {
-        // Localhost (non-Codex/xAI): Open popup and wait for message
+        // Localhost provider without a callback proxy: open popup and wait for message
         setStep("waiting");
         popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
         if (!popupRef.current) {
@@ -426,8 +427,8 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       // Abort polling and cleanup proxy when modal closes
       pollingAbortRef.current = true;
       openedRef.current = false;
-      if (provider === "codex") {
-        fetch("/api/oauth/codex/stop-proxy").catch(() => {});
+      if (OPENAI_OAUTH_PROVIDERS.has(provider)) {
+        fetch(`/api/oauth/${provider}/stop-proxy`).catch(() => {});
       } else if (provider === "xai") {
         fetch("/api/oauth/xai/stop-proxy").catch(() => {});
       } else if (provider === "trae") {
@@ -440,11 +441,10 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
     }
   }, [isOpen, provider, startOAuthFlow]);
 
-  // Server-side proxy mode (codex/xai fixed-port + trae/windsurf dynamic-port):
-  // poll status until the proxy auto-exchanges and saves the connection.
+  // Server-side proxy mode: poll status until callback exchange saves connection.
   useEffect(() => {
-    const pollProvider = authData?.codexServerSide
-      ? "codex"
+    const pollProvider = authData?.openAiServerSide
+      ? provider
       : authData?.xaiServerSide
         ? "xai"
         : authData?.proxyProvider
@@ -489,7 +489,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
     };
     setTimeout(tick, POLL_INTERVAL_MS);
     return () => { cancelled = true; };
-  }, [authData, onSuccess]);
+  }, [authData, onSuccess, provider]);
 
   // Listen for OAuth callback via multiple methods
   useEffect(() => {
@@ -611,6 +611,9 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
       // Detect raw JWT access token (starts with eyJ) — skip URL parsing
       if (input.startsWith("eyJ") && input.includes(".")) {
+        if (provider === "chatgpt-web") {
+          throw new Error("ChatGPT Web requires OpenAI OAuth. Paste the authorization callback URL instead.");
+        }
         await exchangeTokens(input, null);
         return;
       }
@@ -654,8 +657,8 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
   // Clear session on modal close + cleanup proxy
   const handleClose = useCallback(() => {
-    if (provider === "codex") {
-      fetch("/api/oauth/codex/stop-proxy").catch(() => {});
+    if (OPENAI_OAUTH_PROVIDERS.has(provider)) {
+      fetch(`/api/oauth/${provider}/stop-proxy`).catch(() => {});
     } else if (provider === "xai") {
       fetch("/api/oauth/xai/stop-proxy").catch(() => {});
     } else if (provider === "trae") {

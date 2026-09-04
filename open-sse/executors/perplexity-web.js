@@ -135,20 +135,44 @@ async function* readPplxSseEvents(body, signal) {
   }
 }
 
+function formatToolCallsText(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return "";
+  return toolCalls.map((toolCall) => {
+    const name = toolCall.function?.name || "unknown";
+    const args = toolCall.function?.arguments || "{}";
+    const id = toolCall.id || "";
+    return `[Calling tool: ${name}(${args})${id ? ` id=${id}` : ""}]`;
+  }).join("\n");
+}
+
 function parseOpenAIMessages(messages) {
   let systemMsg = "";
   const history = [];
   for (const msg of messages) {
     let role = String(msg.role || "user");
     if (role === "developer") role = "system";
+
+    if (role === "tool") {
+      const result = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
+      const callId = msg.tool_call_id || "";
+      history.push({ role: "user", content: `[Tool result${callId ? ` for ${callId}` : ""}]: ${result}` });
+      continue;
+    }
+
     let content = "";
     if (typeof msg.content === "string") content = msg.content;
     else if (Array.isArray(msg.content)) {
-      content = msg.content.filter((c) => c.type === "text").map((c) => String(c.text || "")).join(" ");
+      content = msg.content.filter((part) => part.type === "text").map((part) => String(part.text || "")).join(" ");
     }
-    if (!content.trim()) continue;
-    if (role === "system") systemMsg += content + "\n";
-    else if (role === "user" || role === "assistant") history.push({ role, content });
+    const toolCalls = role === "assistant" ? formatToolCallsText(msg.tool_calls) : "";
+    if (role === "system") {
+      if (content.trim()) systemMsg += content.trim() + "\n";
+      continue;
+    }
+    if (!content.trim() && !toolCalls) continue;
+    if (role === "user" || role === "assistant") {
+      history.push({ role, content: [content.trim(), toolCalls].filter(Boolean).join("\n") });
+    }
   }
   let currentMsg = "";
   if (history.length > 0 && history[history.length - 1].role === "user") {
@@ -500,6 +524,6 @@ export class PerplexityWebExecutor extends BaseExecutor {
   }
 }
 
-export { parseOpenAIMessages, buildQuery, buildPplxRequestBody, formatToolsHint, sessionKey };
+export { parseOpenAIMessages, buildQuery, buildPplxRequestBody, formatToolCallsText, formatToolsHint, sessionKey };
 
 export default PerplexityWebExecutor;
